@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Snake: Spherical Odyssey - V20 FINAL</title>
+    <title>Snake: Spherical Odyssey - V21 FINAL</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; }
         #ui { position: absolute; top: 20px; width: 100%; text-align: center; color: #00ffaa; pointer-events: none; text-shadow: 0 0 10px #00ffaa; }
@@ -28,7 +28,7 @@
         // --- CONFIGURATION ---
         const RADIUS = 10;
         const STEP_DISTANCE = 0.45;
-        const MOVE_INTERVAL = 150; // Milliseconds between steps (Lower = Faster)
+        const MOVE_INTERVAL = 150; 
 
         // --- STATE ---
         let score = 0;
@@ -36,14 +36,16 @@
         let snakePositions = []; 
         let snakeMeshes = [];    
         let moveDir = new THREE.Vector3(0, 1, 0);
-        let queuedDir = null; // The "Input Buffer"
+
+        // THE FIX: Input Queue. Stores multiple turns so no input is lost.
+        let inputQueue = []; 
 
         let lastStepTime = 0;
         let food = { position: new THREE.Vector3(), mesh: null };
         let obstacles = [];
         let visualHeadPos = new THREE.Vector3(RADIUS, 0, 0);
 
-        // --- SCENE SETUP ---
+        // --- THREE.JS SETUP ---
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -111,7 +113,7 @@
             score = 0; 
             isGameOver = false;
             moveDir.set(0, 1, 0);
-            queuedDir = null;
+            inputQueue = []; // Clear the queue
             lastStepTime = performance.now();
 
             document.getElementById('score').innerText = "SCORE: 0";
@@ -120,7 +122,7 @@
             spawnFood();
         }
 
-        // --- INPUT LOGIC (With Buffering) ---
+        // --- INPUT LOGIC (With Queue) ---
         window.addEventListener('keydown', (e) => {
             if (isGameOver) return;
 
@@ -135,33 +137,32 @@
             else if (e.key === 'w' || e.key === 'ArrowUp') newDir.copy(upRelativeVec);
             else if (e.key === 's' || e.key === 'ArrowDown') newDir.copy(upRelativeVec.clone().negate());
 
-            // Prevent 180-degree turns
+            // Prevent 180-degree turns relative to the CURRENT direction
             if (newDir.dot(moveDir) < -0.5) return;
 
             newDir.projectOnPlane(currentPos);
             newDir.normalize();
 
-            // BUFFER THE INPUT: Instead of changing direction immediately, 
-            // we save it for the next movement step. This prevents the "rapid tap" death.
-            queuedDir = newDir;
+            // ADD TO QUEUE: We don't overwrite, we append.
+            inputQueue.push(newDir.clone());
+
+            // Cap queue size to prevent extreme input lag if someone mashes keys
+            if(inputQueue.length > 3) inputQueue.shift();
         });
 
         function performMovementStep() {
-            // Apply the buffered direction if one exists
-            if (queuedDir !== null) {
-                moveDir.copy(queuedDir);
-                queuedDir = null;
+            // If there is a move in the queue, use it!
+            if (inputQueue.length > 0) {
+                moveDir.copy(inputQueue.shift());
             }
 
             const currentPos = snakePositions[0].clone();
 
-            // Calculate new position
             const newPos = currentPos.clone()
                 .add(moveDir.clone().multiplyScalar(STEP_DISTANCE))
                 .normalize() 
                 .multiplyScalar(RADIUS);
 
-            // Keep moveDir tangent to the sphere
             moveDir.projectOnPlane(newPos.clone().normalize());
             moveDir.normalize();
 
@@ -226,9 +227,7 @@
             requestAnimationFrame(animate);
 
             if (!isGameOver) {
-                // HIGH PRECISION TIMING
-                // This prevents the "slowing down" bug by using the system clock 
-                // instead of frame counts or delta accumulation.
+                // Timing check
                 if (currentTime - lastStepTime >= MOVE_INTERVAL) {
                     performMovementStep();
                     lastStepTime = currentTime;
