@@ -277,14 +277,43 @@
         }
 
         function initGame() {
-            snakeMeshes.forEach(m => scene.remove(m)); snakeMeshes = [];
-            obstacles.forEach(o => scene.remove(o)); obstacles = [];
+            // Clean up old meshes and their geometries/materials to prevent memory leaks
+            snakeMeshes.forEach(m => {
+                m.traverse(child => {
+                    if (child.geometry) child.geometry.dispose();
+                    if (child.material) {
+                        if (Array.isArray(child.material)) child.material.forEach(mat => mat.dispose());
+                        else child.material.dispose();
+                    }
+                });
+                scene.remove(m);
+            });
+            snakeMeshes = [];
+
+            obstacles.forEach(o => {
+                if (o.geometry) o.geometry.dispose();
+                if (o.material) o.material.dispose();
+                scene.remove(o);
+            });
+            obstacles = [];
+
             snakePositions = [new THREE.Vector3(RADIUS, 0, 0)];
             visualSnakePositions = [new THREE.Vector3(RADIUS, 0, 0)];
-            const head = createHead(); snakeMeshes = [head]; scene.add(head);
-            score = 0; isGameOver = false; moveDir.set(0, 1, 0); inputQueue = []; lastStepTime = performance.now();
+
+            const head = createHead(); 
+            snakeMeshes = [head]; 
+            scene.add(head);
+
+            score = 0; 
+            isGameOver = false; 
+            moveDir.set(0, 1, 0); 
+            inputQueue = []; 
+            lastStepTime = performance.now();
+
             document.getElementById('score').innerText = "SCORE: 0";
             document.getElementById('game-over').style.display = 'none';
+
+            // Clear old obstacles if any left
             for(let i=0; i<30; i++) spawnObstacle();
             spawnFood();
         }
@@ -350,6 +379,12 @@
             document.getElementById('final-score').innerText = `FINAL SCORE: ${score}`;
         }
 
+                // Pre-allocate math vectors outside the loop to prevent "GC Thrashing" (Stuttering)
+        const _tempVec1 = new THREE.Vector3();
+        const _tempVec2 = new THREE.Vector3();
+        const _headNormal = new THREE.Vector3();
+        const _desiredUp = new THREE.Vector3();
+
         function animate(currentTime) {
             requestAnimationFrame(animate);
             if (!isGameOver) {
@@ -361,10 +396,12 @@
                     visualSnakePositions[0].lerp(snakePositions[0], 0.3);
                     for (let i = 1; i < visualSnakePositions.length; i++) {
                         const dragFactor = 0.15 / (1 + (i * 0.05)); 
-                        const targetPos = visualSnakePositions[i - 1].clone();
+                        const targetPos = visualSnakePositions[i - 1]; // Removed .clone()
                         visualSnakePositions[i].lerp(targetPos, dragFactor);
                     }
-                    if (visualSnakePositions.length > 1) visualSnakePositions[visualSnakePositions.length-1].lerp(snakePositions[snakePositions.length-1], 0.1);
+                    if (visualSnakePositions.length > 1) {
+                        visualSnakePositions[visualSnakePositions.length-1].lerp(snakePositions[snakePositions.length-1], 0.1);
+                    }
 
                     // UPDATE MESHES
                     if (snakeMeshes.length > 0) {
@@ -372,34 +409,25 @@
                             const mesh = snakeMeshes[i];
                             const pos = visualSnakePositions[i];
                             mesh.position.copy(pos);
+
                             if (i < snakeMeshes.length - 1) mesh.lookAt(visualSnakePositions[i+1]);
-                            else mesh.lookAt(pos.clone().add(moveDir));
-                            mesh.up.copy(pos.clone().normalize());
+                            else {
+                                _tempVec1.copy(pos).add(moveDir); // Using reusable vector instead of clone
+                                mesh.lookAt(_tempVec1);
+                            }
+                            mesh.up.copy(pos).normalize();
 
                             if (i > 0) {
                                 const time = currentTime * 0.005;
                                 const turbulence = isWPressed ? 0.05 : 0.02;
-
-                                // 1. Calculate how 'tight' the gas should be. 
-                                // Segment 1 (i=1) is wide (~0.37). 
-                                // As i increases, this value shrinks, pulling particles to the center.
                                 const taper = Math.max(0.1, 0.4 - (i * 0.04)); 
 
                                 mesh.children.forEach((child, idx) => {
                                     if (child.isSprite) {
-                                        // 2. We use a sine wave to create an 'orbit' 
-                                        // and multiply it by 'taper' so they stay close to the core.
                                         const orbitRadius = taper; 
-                                        const angle = time + idx; // unique angle per particle
-
-                                        // This sets the base position (the orbit)
-                                        const targetX = Math.cos(angle) * orbitRadius;
-                                        const targetY = Math.sin(angle) * orbitRadius;
-
-                                        // 3. We add the turbulence on top of that orbit
-                                        child.position.x = targetX + Math.sin(time * 2 + i + idx) * turbulence;
-                                        child.position.y = targetY + Math.cos(time * 1.5 + i + idx) * turbulence;
-
+                                        const angle = time + idx;
+                                        child.position.x = Math.cos(angle) * orbitRadius + Math.sin(time * 2 + i + idx) * turbulence;
+                                        child.position.y = Math.sin(angle) * orbitRadius + Math.cos(time * 1.5 + i + idx) * turbulence;
                                         const pulse = 0.4 + Math.sin(time + i) * 0.15;
                                         child.scale.set(pulse, pulse, pulse);
                                     }
@@ -407,23 +435,35 @@
                             }
                         }
                         visualHeadPos.lerp(snakeMeshes[0].position, 0.1);
-                        camera.position.lerp(visualHeadPos.clone().normalize().multiplyScalar(18), 0.05);
-                        const headNormal = visualHeadPos.clone().normalize();
-                        const desiredUp = moveDir.clone().projectOnPlane(headNormal).normalize();
-                        if (Math.abs(desiredUp.dot(headNormal)) > 0.95) cameraTargetUp.set(0, 1, 0).projectOnPlane(headNormal).normalize();
-                        else cameraTargetUp.copy(desiredUp);
+
+                        // Camera Logic - Optimized to use reusable vectors
+                        _tempVec1.copy(visualHeadPos).normalize().multiplyScalar(18);
+                        camera.position.lerp(_tempVec1, 0.05);
+
+                        _headNormal.copy(visualHeadPos).normalize();
+                        _desiredUp.copy(moveDir).projectOnPlane(_headNormal).normalize();
+
+                        if (Math.abs(_desiredUp.dot(_headNormal)) > 0.95) {
+                            cameraTargetUp.set(0, 1, 0).projectOnPlane(_headNormal).normalize();
+                        } else {
+                            cameraTargetUp.copy(_desiredUp);
+                        }
+
                         currentCameraUp.lerp(cameraTargetUp, 0.05);
                         camera.up.copy(currentCameraUp);
                         camera.lookAt(visualHeadPos);
-                        light.position.copy(visualHeadPos.clone().multiplyScalar(2));
+
+                        _tempVec2.copy(visualHeadPos).multiplyScalar(2);
+                        light.position.copy(_tempVec2);
                     }
                 } else { document.getElementById('pause-ui').style.display = 'block'; }
             }
 
             if (food.mesh) {
                 const time = performance.now() * 0.005;
-                const upDir = food.position.clone().normalize();
-                food.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), upDir);
+                _tempVec1.copy(food.position).normalize();
+                food.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), _tempVec1);
+
                 food.particles.forEach((p, i) => {
                     const lifeProgress = (time * p.userData.speed + p.userData.life) % 1;
                     const height = lifeProgress * 0.8, width = (1.0 - lifeProgress) * 0.4; 
