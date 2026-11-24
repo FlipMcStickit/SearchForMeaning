@@ -276,23 +276,37 @@
             spawnFood();
         }
 
-                window.addEventListener('keydown', (e) => {
+        window.addEventListener('keydown', (e) => {
             if (e.code === 'KeyW') { currentMoveInterval = BOOST_MOVE_INTERVAL; }
             if (e.code === 'Space') { isPaused = !isPaused; return; }
             if (!gameStarted || isGameOver || isPaused) return;
+
             const currentPos = snakePositions[0].clone().normalize(); 
             const rightVec = new THREE.Vector3().crossVectors(currentPos, moveDir).normalize();
             const upRel = new THREE.Vector3().crossVectors(rightVec, currentPos).normalize();
+
             let newDir = moveDir.clone();
-            if (e.key === 'a' || e.key === 'ArrowLeft') newDir.copy(rightVec);
-            else if (e.key === 'd' || e.key === 'ArrowRight') newDir.copy(rightVec.clone().negate());
-            else if (e.key === 'w' || e.key === 'ArrowUp') newDir.copy(upRel);
-            else if (e.key === 's' || e.key === 'ArrowDown') newDir.copy(upRel.clone().negate());
-            else return; 
+
+            // Using .code instead of .key fixes the Caps Lock issue
+            if (e.code === 'KeyA' || e.code === 'ArrowLeft') {
+                newDir.copy(rightVec);
+            } else if (e.code === 'KeyD' || e.code === 'ArrowRight') {
+                newDir.copy(rightVec.clone().negate());
+            } else if (e.code === 'KeyW' || e.code === 'ArrowUp') {
+                newDir.copy(upRel);
+            } else {
+                return; 
+            }
+
+            // Prevent 180-degree turns
             if (newDir.dot(moveDir) < -0.5) return;
             if (inputQueue.length > 0 && newDir.dot(inputQueue[inputQueue.length-1]) < -0.5) return;
-            newDir.projectOnPlane(currentPos); newDir.normalize();
+
+            newDir.projectOnPlane(currentPos); 
+            newDir.normalize();
+
             if (newDir.dot(moveDir) > 0.99 && inputQueue.length === 0) return;
+
             inputQueue.push(newDir.clone());
             if(inputQueue.length > 2) inputQueue.shift();
         });
