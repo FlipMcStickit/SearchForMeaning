@@ -177,10 +177,12 @@
             obstacles.forEach(o => scene.remove(o));
             obstacles = [];
 
-            // Reset State
-            snakePositions = [new THREE.Vector3(RADIUS, 0, 0)];
-			visualPositions = [new THREE.Vector3(RADIUS, 0, 0)];
-            targetPositions = [new THREE.Vector3(RADIUS, 0, 0)];
+                        // Reset State
+            const startPos = new THREE.Vector3(RADIUS, 0, 0);
+            snakePositions = [startPos.clone()];
+            targetPositions = [startPos.clone()];
+            visualPositions = [startPos.clone()];
+
             const head = createHead();
             snakeMeshes = [head];
             scene.add(head);
@@ -279,39 +281,43 @@
                 return;
             }
 
-                        // 3. EATING & POSITION UPDATE
+                                    // 3. EATING & POSITION UPDATE
             const eating = newPos.distanceTo(food.position) < 1.0;
             if (eating) {
                 score += 10;
                 document.getElementById('score').innerText = `SCORE: ${score}`;
                 spawnFood();
             } else {
+                // Remove the last element from all logic/visual arrays
+                snakePositions.pop();
                 targetPositions.pop();
-                visualPositions.pop(); // Keep visual array in sync with logic
+                visualPositions.pop();
             }
+
+            // Add the new position to the front of all arrays
+            snakePositions.unshift(newPos.clone());
             targetPositions.unshift(newPos.clone());
-            visualPositions.unshift(newPos.clone()); // Start visual at the new position
+            visualPositions.unshift(newPos.clone());
 
             // 4. MESH SYNC (Managing the number of meshes)
-            while (snakeMeshes.length < targetPositions.length) {
+            while (snakeMeshes.length < snakePositions.length) {
                 const m = snakeMeshes.length === 0 ? createHead() : createSegment();
                 snakeMeshes.push(m);
                 scene.add(m);
             }
-            while (snakeMeshes.length > targetPositions.length) {
+            while (snakeMeshes.length > snakePositions.length) {
                 scene.remove(snakeMeshes.pop());
                 visualPositions.pop();
                 targetPositions.pop();
             }
 
-            // Note: We do NOT update mesh.position here anymore. 
-            // We do it in the animate() loop for smoothness.
+            // Update rotation/orientation using the logical snakePositions
             for (let i = 0; i < snakeMeshes.length; i++) {
-                const upVector = targetPositions[i].clone().normalize();
-                if (i < targetPositions.length - 1) {
-                    snakeMeshes[i].lookAt(targetPositions[i+1]);
+                const upVector = snakePositions[i].clone().normalize();
+                if (i < snakePositions.length - 1) {
+                    snakeMeshes[i].lookAt(snakePositions[i+1]);
                 } else {
-                    const lookTarget = targetPositions[i].clone().add(moveDir);
+                    const lookTarget = snakePositions[i].clone().add(moveDir);
                     snakeMeshes[i].lookAt(lookTarget);
                 }
                 snakeMeshes[i].up.copy(upVector);
