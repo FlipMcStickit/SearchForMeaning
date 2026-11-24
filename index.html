@@ -344,43 +344,37 @@
                     // --- ADVANCED PATH-FOLLOWING TAIL ---
 
                     // 1. Move the visual head toward the actual head position
-                    visualSnakePositions[0].lerp(snakePositions[0], 0.4);
+                    visualSnakePositions[0].lerp(snakePositions[0], 0.5);
 
-                    // 2. Move each following segment
+                    // 2. The "Tethered" Movement logic
+                    // Instead of chasing the visual tail (which lags), 
+                    // every segment now chases its corresponding spot in the 
+                    // ACTUAL mathematical path (snakePositions).
+                    // 2. The "Hybrid" Movement logic (Accuracy + Organic Flow)
                     for (let i = 1; i < visualSnakePositions.length; i++) {
-                        // We use a slightly lower drag here to allow for more "swing"
-                        const dragFactor = 0.35; 
+                        if (snakePositions[i]) {
+                            // STEP A: The "Anchor" (Accuracy)
+                            // We move toward the actual math position.
+                            visualSnakePositions[i].lerp(snakePositions[i], 0.5);
 
-                        // Instead of just lerping to the previous segment's CURRENT position,
-                        // we are essentially telling the tail to follow the "breadcrumb trail"
-                        // left by the head. 
-                        visualSnakePositions[i].lerp(visualSnakePositions[i - 1], dragFactor);
+                            // STEP B: The "Curve" (Organic Flow)
+                            // We also gently pull the segment toward the one in front of it.
+                            // This creates that beautiful "follow the leader" sweeping motion.
+                            visualSnakePositions[i].lerp(visualSnakePositions[i - 1], 0.2);
+                        } else {
+                            visualSnakePositions[i].lerp(visualSnakePositions[i-1], 0.5);
+                        }
 
-                        // 3. ANTI-OVERLAP (Soft Nudge)
+                        // 3. ANTI-OVERLAP (Keeps segments from bunching up)
                         const dist = visualSnakePositions[i].distanceTo(visualSnakePositions[i-1]);
-                        if (dist < 0.22) { 
+                        if (dist < 0.25) { 
                             const direction = new THREE.Vector3().subVectors(visualSnakePositions[i], visualSnakePositions[i-1]).normalize();
                             if (direction.length() === 0) direction.copy(moveDir);
-                            visualSnakePositions[i].copy(visualSnakePositions[i-1]).add(direction.multiplyScalar(0.22));
+                            visualSnakePositions[i].copy(visualSnakePositions[i-1]).add(direction.multiplyScalar(0.25));
                         }
                     }
 
-                    // 4. THE "PINNED TAIL" FIX (The Tail Whip)
-                    // We check if the tail is lagging too far behind the actual snake length.
-                    // If the tail is "stuck", we force the last segment to move toward 
-                    // its actual intended position to "unstick" it.
-                    if (visualSnakePositions.length > 0) {
-                        const lastVisual = visualSnakePositions[visualSnakePositions.length - 1];
-                        const lastActual = snakePositions[snakePositions.length - 1];
-
-                        // If the last visual segment is too far from the actual tail position, 
-                        // pull it toward it. This prevents the "pinned" effect.
-                        if (lastVisual.distanceTo(lastActual) > 1.0) {
-                            lastVisual.lerp(lastActual, 0.1);
-                        }
-                    }
-
-                    // 5. Handle length changes
+                    // 4. Handle length changes (Keeping visual and actual counts in sync)
                     if (visualSnakePositions.length > snakePositions.length) {
                         visualSnakePositions.pop();
                     } else if (visualSnakePositions.length < snakePositions.length) {
