@@ -217,15 +217,16 @@ food = { position: new THREE.Vector3(), mesh: foodGroup, particles: particles };
         function createSegment() {
             const segmentGroup = new THREE.Group();
 
-            // Reduced particle count slightly so it looks less like a cloud and more like a core
-            const particleCount = 4; 
+            // We use more particles to create a "cloud" effect rather than a solid object
+            const particleCount = 12; 
             for (let i = 0; i < particleCount; i++) {
                 const canvas = document.createElement('canvas');
                 canvas.width = 32; canvas.height = 32;
                 const ctx = canvas.getContext('2d');
                 const grad = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
 
-                const colors = ['rgba(255, 50, 255, 1)', 'rgba(255, 100, 0, 1)', 'rgba(255, 255, 0, 1)'];
+                // A more "nebula" color palette: Magentas, Cyans, and Oranges
+                const colors = ['rgba(0, 255, 255, 0.5)', 'rgba(255, 0, 255, 0.5)', 'rgba(255, 100, 0, 0.5)'];
                 const chosenColor = colors[Math.floor(Math.random() * colors.length)];
 
                 grad.addColorStop(0, chosenColor);
@@ -243,28 +244,32 @@ food = { position: new THREE.Vector3(), mesh: foodGroup, particles: particles };
 
                 const sprite = new THREE.Sprite(mat);
 
-                // --- TIGHTENED POSITIONING ---
-                // We reduced the multiplier from 0.5 to 0.15. 
-                // This keeps the particles very close to the center of the segment.
+                // Store turbulence data in userData
+                sprite.userData = {
+                    offset: Math.random() * Math.PI * 2,
+                    radius: 0.1 + Math.random() * 0.2,
+                    speed: 0.5 + Math.random() * 1.5
+                };
+
+                // Start them at random positions within the segment
                 sprite.position.set(
-                    (Math.random() - 0.5) * 0.15,
-                    (Math.random() - 0.5) * 0.15,
-                    (Math.random() - 0.5) * 0.15
+                    (Math.random() - 0.5) * 0.4,
+                    (Math.random() - 0.5) * 0.4,
+                    (Math.random() - 0.5) * 0.4
                 );
 
-                // Slightly smaller scale to keep the silhouette slim
-                const s = 0.2 + Math.random() * 0.2;
+                const s = 0.3 + Math.random() * 0.5;
                 sprite.scale.set(s, s, s);
 
                 segmentGroup.add(sprite);
             }
 
-            // We made the core slightly larger and more visible to "hold" the particles together
-            const coreGeom = new THREE.SphereGeometry(0.18, 8, 8);
+            // We keep a faint central glow to hold the "gas" together
+            const coreGeom = new THREE.SphereGeometry(0.1, 8, 8);
             const coreMat = new THREE.MeshBasicMaterial({ 
-                color: 0xffaa00, 
+                color: 0x00ffaa, 
                 transparent: true, 
-                opacity: 0.5,
+                opacity: 0.2,
                 blending: THREE.AdditiveBlending 
             });
             const core = new THREE.Mesh(coreGeom, coreMat);
@@ -451,13 +456,7 @@ food = { position: new THREE.Vector3(), mesh: foodGroup, particles: particles };
                 snakePositions.pop();
             }
 
-            snakePositions.unshift(newPos.clone());
-
-            // Ensure visual array matches logical array length
-            while (visualSnakePositions.length < snakePositions.length) {
-                visualSnakePositions.push(snakePositions[visualSnakePositions.length-1].clone());
-            }
-            if (visualSnakePositions.length > snakePositions.length) visualSnakePositions.pop();
+             snakePositions.unshift(newPos.clone());
 
             // Sync Meshes
             while (snakeMeshes.length < snakePositions.length) {
@@ -467,6 +466,18 @@ food = { position: new THREE.Vector3(), mesh: foodGroup, particles: particles };
             }
             while (snakeMeshes.length > snakePositions.length) {
                 scene.remove(snakeMeshes.pop());
+            }
+
+            // --- NEW: DRAG LOGIC ---
+            // We ensure the visual array is always exactly the same size as the logical array
+            if (visualSnakePositions.length < snakePositions.length) {
+                // If we just ate food and grew, add new positions to the visual array
+                for (let i = visualSnakePositions.length; i < snakePositions.length; i++) {
+                    visualSnakePositions.push(snakePositions[i].clone());
+                }
+            } else if (visualSnakePositions.length > snakePositions.length) {
+                // If we moved and the snake got shorter, trim the visual array
+                visualSnakePositions.pop();
             }
         }
 
