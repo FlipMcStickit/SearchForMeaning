@@ -78,14 +78,37 @@
         scene.add(foodMesh);
         food = { position: new THREE.Vector3(), mesh: foodMesh };
 
-        function createHead() {
+                                function createHead() {
             const group = new THREE.Group();
-            const body = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.6, 0.6), new THREE.MeshPhongMaterial({ color: 0x00ffaa }));
-            group.add(body);
-            const nose = new THREE.Mesh(new THREE.ConeGeometry(0.25, 0.6, 8), new THREE.MeshPhongMaterial({ color: 0xffffff }));
-            nose.rotation.x = Math.PI / 2; 
-            nose.position.z = -0.5; 
-            group.add(nose);
+
+            // 1. THE CORE: Small, bright, and solid
+            const coreMat = new THREE.MeshStandardMaterial({ 
+                color: 0xffffff,       // White core looks "hotter" and more intense
+                emissive: 0x00ffaa,    // Teal glow
+                emissiveIntensity: 5,  // Very high intensity
+                roughness: 0
+            });
+            const core = new THREE.Mesh(new THREE.SphereGeometry(0.25, 32, 32), coreMat);
+            group.add(core);
+
+            // 2. THE AURA: Large, soft, and translucent
+            // This acts as the "particle/gas" look
+            const auraMat = new THREE.MeshStandardMaterial({ 
+                color: 0x00ffaa, 
+                emissive: 0x00ffaa, 
+                emissiveIntensity: 2,
+                transparent: true,
+                opacity: 0.3,          // Very faint
+                depthWrite: false,     // Crucial: prevents the aura from "clipping" the core
+                blending: THREE.AdditiveBlending // Makes it "glow" by adding color to the background
+            });
+            const aura = new THREE.Mesh(new THREE.SphereGeometry(0.5, 32, 32), auraMat);
+            group.add(aura);
+
+            // 3. THE RADIANCE: The light that hits the world
+            const glowLight = new THREE.PointLight(0x00ffaa, 30, 6); 
+            group.add(glowLight);
+
             return group;
         }
 
