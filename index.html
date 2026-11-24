@@ -20,7 +20,7 @@
         canvas {
             border: 2px solid #333;
             background-color: #000;
-            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            box-shadow: 0 0 50px rgba(0, 0, 0, 1);
         }
     </style>
 </head>
@@ -29,39 +29,34 @@
     <canvas id="gameCanvas" width="600" height="400"></canvas>
 
     <script>
-        // 1. Setup
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
 
-        // 2. Variables: The State of Being
+        // 1. Variables: The State of Being
         let snake = [{x: 300, y: 200}]; 
         let sparkSize = 10;
         let speed = 10; 
 
-        // The Timekeepers
         let lastUpdateTime = 0;
         let moveInterval = 100; 
         let direction = { x: 0, y: 0 }; 
         let food = {x: 100, y: 100}; 
 
-        // Input Buffering: The Queue of Intent
         let inputQueue = [];
-
-        // Obstacles (The Monoliths)
         let obstacles = []; 
-        const monolithCount = 4; 
-
-        // Mortality
         let isGameOver = false;
 
-        // 3. Event Listeners
+        // CAMERA STATE
+        // The camera "drifts" toward the snake head for a smoother, cinematic feel
+        let camera = { x: 300, y: 200 };
+
+        // 2. Event Listeners
         window.addEventListener('keydown', (e) => {
             if (isGameOver && (e.key === ' ' || e.key === 'Enter')) {
                 resetGame();
                 return;
             }
 
-            // Map keys to direction vectors
             let newDir = null;
             if (e.key === 'ArrowUp' || e.key === 'w')    newDir = { x: 0, y: -speed };
             if (e.key === 'ArrowDown' || e.key === 's')  newDir = { x: 0, y: speed };
@@ -69,20 +64,13 @@
             if (e.key === 'ArrowRight' || e.key === 'd') newDir = { x: speed, y: 0 };
 
             if (newDir) {
-                // Prevent 180-degree turns within the queue
-                // We check against the last direction in the queue, or the current direction if queue is empty
                 const lastDir = inputQueue.length > 0 ? inputQueue[inputQueue.length - 1] : direction;
-
                 const isOpposite = (newDir.x !== 0 && lastDir.x !== 0 && (newDir.x === -lastDir.x)) ||
                                    (newDir.y !== 0 && lastDir.y !== 0 && (newDir.y === -lastDir.y));
-
-                if (!isOpposite) {
-                    inputQueue.push(newDir);
-                }
+                if (!isOpposite) inputQueue.push(newDir);
             }
         });
 
-        // Helper: Check if a position is safe
         function isValidPosition(x, y) {
             const hitObstacle = obstacles.some(obs => obs.x === x && obs.y === y);
             const hitSnake = snake.some(seg => seg.x === x && seg.y === y);
@@ -91,78 +79,53 @@
 
         function generateObstacles() {
             obstacles = [];
-            // We want a set number of "Patterns" rather than individual segments
-            const patternCount = 5; 
-
+            const patternCount = 8; // Increased density for a moving camera
             for (let i = 0; i < patternCount; i++) {
-                // 1. Determine the type of pattern: Vertical, Horizontal, or a "L-Shape"
                 const patternType = Math.floor(Math.random() * 3); 
-
-                // 2. Pick a starting point on one side of the screen (Left or Top)
-                // We keep them away from the center (300, 200) to avoid instant death
-                let startX = Math.floor(Math.random() * (canvas.width / 2 / sparkSize)) * sparkSize;
+                let startX = Math.floor(Math.random() * (canvas.width / sparkSize)) * sparkSize;
                 let startY = Math.floor(Math.random() * (canvas.height / sparkSize)) * sparkSize;
-
-                // Ensure we aren't spawning right on the snake's start
-                if (Math.abs(startX - 300) < 40 && Math.abs(startY - 200) < 40) {
-                    startX += 100; 
-                }
-
-                // 3. Define the length and direction of the monolith
-                // Longer monoliths: 6 to 12 units long
-                const length = Math.floor(Math.random() * 6) + 6; 
-
+                const length = Math.floor(Math.random() * 8) + 5; 
                 let patternSegments = [];
 
-                if (patternType === 0) { // Vertical Monolith
-                    for (let j = 0; j < length; j++) {
-                        patternSegments.push({ x: startX, y: startY + (j * sparkSize) });
-                    }
-                } else if (patternType === 1) { // Horizontal Monolith
-                    for (let j = 0; j < length; j++) {
-                        patternSegments.push({ x: startX + (j * sparkSize), y: startY });
-                    }
-                } else { // "The Corner" (L-Shape)
-                    for (let j = 0; j < Math.floor(length/2); j++) {
-                        patternSegments.push({ x: startX + (j * sparkSize), y: startY });
-                    }
-                    for (let j = 1; j < Math.ceil(length/2); j++) {
-                        patternSegments.push({ x: startX + (Math.floor(length/2) * sparkSize), y: startY + (j * sparkSize) });
-                    }
+                if (patternType === 0) {
+                    for (let j = 0; j < length; j++) patternSegments.push({ x: startX, y: startY + (j * sparkSize) });
+                } else if (patternType === 1) {
+                    for (let j = 0; j < length; j++) patternSegments.push({ x: startX + (j * sparkSize), y: startY });
+                } else {
+                    for (let j = 0; j < Math.floor(length/2); j++) patternSegments.push({ x: startX + (j * sparkSize), y: startY });
+                    for (let j = 1; j < Math.ceil(length/2); j++) patternSegments.push({ x: startX + (Math.floor(length/2) * sparkSize), y: startY + (j * sparkSize) });
                 }
 
-                // 4. Add the original segments AND their mirrored counterparts
                 patternSegments.forEach(seg => {
-                    // Segment 1: The Original
                     obstacles.push({ x: seg.x, y: seg.y });
-
-                    // Segment 2: The Mirrored Reflection
-                    // We mirror across the vertical center: (Width - X - SparkSize)
-                    const mirroredX = canvas.width - seg.x - sparkSize;
-                    obstacles.push({ x: mirroredX, y: seg.y });
+                    // Note: Mirroring is harder with a moving camera, 
+                    // so we treat the world as a flat plane that we are "curving" visually.
                 });
             }
-
-            // Final safety: remove any obstacles that might have spawned on the starting point
             obstacles = obstacles.filter(obs => obs.x !== 300 || obs.y !== 200);
         }
 
         function resetGame() {
             snake = [{x: 300, y: 200}];
             direction = { x: 0, y: 0 };
-            inputQueue = []; // Clear inputs on reset
+            inputQueue = [];
             isGameOver = false;
             lastUpdateTime = 0;
+            camera = { x: 300, y: 200 };
             generateObstacles(); 
-
             do {
                 food.x = Math.floor(Math.random() * (canvas.width / sparkSize)) * sparkSize;
                 food.y = Math.floor(Math.random() * (canvas.height / sparkSize)) * sparkSize;
             } while (!isValidPosition(food.x, food.y));
         }
 
-        // 4. The Game Loop
+        // 3. The Game Loop
         function draw() {
+            // Update Camera: Interpolate (LERP) towards the snake head
+            // This creates the "floating" sensation.
+            camera.x += (snake[0].x - camera.x) * 0.1;
+            camera.y += (snake[0].y - camera.y) * 0.1;
+
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
             if (isGameOver) {
@@ -173,59 +136,67 @@
                 ctx.font = "16px Georgia";
                 ctx.fillText("Press Space to seek meaning again", canvas.width / 2, canvas.height / 2 + 40);
             } else {
-                // Projection Function: Converts Flat Space -> Spherical Illusion
+                /**
+                 * MOVING SPHERICAL PROJECTION
+                 * Now projects relative to the CAMERA position.
+                 */
                 const project = (x, y) => {
-                    let normalizedX = (x - canvas.width / 2) / (canvas.width / 2);
-                    // We use Math.sin to create the curve
-                    let curvedX = Math.sin(normalizedX * Math.PI / 2) * (canvas.width / 2);
-                    return { 
-                        x: curvedX + canvas.width / 2, 
-                        y: y 
+                    // 1. Distance from CAMERA (the new center of the sphere)
+                    const dx = x - camera.x;
+                    const dy = y - camera.y;
+
+                    const radius = Math.sqrt(dx * dx + dy * dy);
+                    const angle = Math.atan2(dy, dx);
+
+                    // 2. Spherical Distortion
+                    // We use a fixed visual radius so the "world" feels consistent 
+                    // even as we move.
+                    const maxR = 350; 
+                    const normalizedR = Math.min(radius / maxR, 1);
+                    const distortedR = Math.sin(normalizedR * Math.PI / 2) * maxR;
+
+                    // 3. Convert back to Canvas Space
+                    // We center the projection on the middle of the screen
+                    return {
+                        x: Math.cos(angle) * distortedR + canvas.width / 2,
+                        y: Math.sin(angle) * distortedR + canvas.height / 2,
+                        scale: Math.cos(normalizedR * Math.PI / 2)
                     };
                 };
 
-                // 1. Draw Obstacles (Projected)
+                // Draw Obstacles
                 ctx.fillStyle = "#333"; 
                 obstacles.forEach(obs => {
                     const p = project(obs.x, obs.y);
-                    // Calculate scale: objects get thinner as they reach the edges
-                    const scale = Math.cos(((obs.x - canvas.width/2) / (canvas.width/2)) * Math.PI/2);
-                    ctx.fillRect(p.x, p.y, sparkSize * scale, sparkSize);
-
-                    // Optional: Add a tiny stroke to the monoliths to help the eye see the curve
-                    ctx.strokeStyle = "#444";
-                    ctx.strokeRect(p.x, p.y, sparkSize * scale, sparkSize);
+                    // Only draw if within the "viewable" sphere to save performance
+                    if (p.scale > 0 && p.scale < 1.5) {
+                        ctx.fillRect(p.x, p.y, sparkSize * p.scale, sparkSize * p.scale);
+                    }
                 });
 
-                // 2. Draw Food (Projected)
+                // Draw Food
                 const fp = project(food.x, food.y);
-                const foodScale = Math.cos(((food.x - canvas.width/2) / (canvas.width/2)) * Math.PI/2);
-                ctx.fillStyle = "red";
-                // FIXED: Using fp.x and fp.y instead of food.x and food.y
-                ctx.fillRect(fp.x, fp.y, sparkSize * foodScale, sparkSize);
+                if (fp.scale > 0 && fp.scale < 1.5) {
+                    ctx.fillStyle = "red";
+                    ctx.fillRect(fp.x, fp.y, sparkSize * fp.scale, sparkSize * fp.scale);
+                }
 
-                // 3. The Pulse (Movement & Input Consumption)
+                // Movement Logic (Unchanged: remains in Flat Space)
                 let currentTime = Date.now();
                 if (currentTime - lastUpdateTime >= moveInterval) {
-
-                    if (inputQueue.length > 0) {
-                        direction = inputQueue.shift();
-                    }
+                    if (inputQueue.length > 0) direction = inputQueue.shift();
 
                     if (direction.x !== 0 || direction.y !== 0) {
                         let newX = snake[0].x + direction.x;
                         let newY = snake[0].y + direction.y;
 
-                        // Transcendence (Wrap-around)
+                        // Wrap-around logic
                         if (newX < 0) newX = canvas.width - sparkSize;
                         else if (newX >= canvas.width) newX = 0;
-
                         if (newY < 0) newY = canvas.height - sparkSize;
                         else if (newY >= canvas.height) newY = 0;
 
                         const newHead = { x: newX, y: newY };
-
-                        // Collision Checks (Done in FLAT space)
                         const hitObstacle = obstacles.some(obs => obs.x === newHead.x && obs.y === newHead.y);
                         const hitSelf = snake.some(segment => segment.x === newHead.x && segment.y === newHead.y);
 
@@ -247,19 +218,20 @@
                     lastUpdateTime = currentTime;
                 }
 
-                // 4. Draw the Snake (Projected)
+                // Draw Snake
                 snake.forEach(segment => {
                     const p = project(segment.x, segment.y);
-                    const scale = Math.cos(((segment.x - canvas.width/2) / (canvas.width/2)) * Math.PI/2);
-                    ctx.fillStyle = "#00ffaa";
-                    ctx.fillRect(p.x, p.y, sparkSize * scale, sparkSize);
+                    // The head should always be near the center of the screen
+                    if (p.scale > 0 && p.scale < 1.5) {
+                        ctx.fillStyle = "#00ffaa";
+                        ctx.fillRect(p.x, p.y, sparkSize * p.scale, sparkSize * p.scale);
+                    }
                 });
             }
 
             requestAnimationFrame(draw);
         }
 
-        // 5. Start
         resetGame(); 
         draw();
     </script>
