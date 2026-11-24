@@ -152,7 +152,14 @@
                 const texture = new THREE.CanvasTexture(canvas);
                 const mat = new THREE.SpriteMaterial({ map: texture, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
                 const sprite = new THREE.Sprite(mat);
-                sprite.userData = { offset: Math.random() * Math.PI * 2, radius: 0.1 + Math.random() * 0.2, speed: 0.5 + Math.random() * 1.5 };
+
+                // --- THE FIX IS HERE ---
+                // We add 'segmentIndex' to userData so the animate loop knows which part of the tail it belongs to
+                sprite.userData = { 
+                    offset: Math.random() * Math.PI * 2, 
+                    speed: 0.5 + Math.random() * 1.5 
+                };
+
                 sprite.position.set((Math.random()-0.5)*0.4, (Math.random()-0.5)*0.4, (Math.random()-0.5)*0.4);
                 const s = 0.3 + Math.random() * 0.5;
                 sprite.scale.set(s, s, s);
@@ -294,10 +301,27 @@
                             if (i > 0) {
                                 const time = currentTime * 0.005;
                                 const turbulence = isWPressed ? 0.05 : 0.02;
+
+                                // 1. Calculate how 'tight' the gas should be. 
+                                // Segment 1 (i=1) is wide (~0.37). 
+                                // As i increases, this value shrinks, pulling particles to the center.
+                                const taper = Math.max(0.1, 0.4 - (i * 0.04)); 
+
                                 mesh.children.forEach((child, idx) => {
                                     if (child.isSprite) {
-                                        child.position.x += Math.sin(time * 2 + i + idx) * turbulence;
-                                        child.position.y += Math.cos(time * 1.5 + i + idx) * turbulence;
+                                        // 2. We use a sine wave to create an 'orbit' 
+                                        // and multiply it by 'taper' so they stay close to the core.
+                                        const orbitRadius = taper; 
+                                        const angle = time + idx; // unique angle per particle
+
+                                        // This sets the base position (the orbit)
+                                        const targetX = Math.cos(angle) * orbitRadius;
+                                        const targetY = Math.sin(angle) * orbitRadius;
+
+                                        // 3. We add the turbulence on top of that orbit
+                                        child.position.x = targetX + Math.sin(time * 2 + i + idx) * turbulence;
+                                        child.position.y = targetY + Math.cos(time * 1.5 + i + idx) * turbulence;
+
                                         const pulse = 0.4 + Math.sin(time + i) * 0.15;
                                         child.scale.set(pulse, pulse, pulse);
                                     }
