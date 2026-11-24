@@ -58,6 +58,7 @@
         let currentMoveInterval = BASE_MOVE_INTERVAL;
         let isGameOver = false;
         let isPaused = false;
+        let gameStarted = false;
         let snakePositions = []; 
         let snakeMeshes = [];    
         let moveDir = new THREE.Vector3(0, 1, 0);
@@ -275,10 +276,10 @@
             spawnFood();
         }
 
-        window.addEventListener('keydown', (e) => {
+                window.addEventListener('keydown', (e) => {
             if (e.code === 'KeyW') { currentMoveInterval = BOOST_MOVE_INTERVAL; }
             if (e.code === 'Space') { isPaused = !isPaused; return; }
-            if (isGameOver || isPaused) return;
+            if (!gameStarted || isGameOver || isPaused) return;
             const currentPos = snakePositions[0].clone().normalize(); 
             const rightVec = new THREE.Vector3().crossVectors(currentPos, moveDir).normalize();
             const upRel = new THREE.Vector3().crossVectors(rightVec, currentPos).normalize();
@@ -436,6 +437,7 @@
 
         window.startGame = function() {
             document.getElementById('start-screen').style.display = 'none';
+            gameStarted = true;
             initGame();
             requestAnimationFrame(animate);
         };
