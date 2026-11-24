@@ -72,50 +72,41 @@
         const planet = new THREE.Mesh(new THREE.SphereGeometry(RADIUS, 48, 48), new THREE.MeshPhongMaterial({ color: 0x111122, wireframe: true }));
         scene.add(planet);
 
-// --- NEW FLAME FOOD SETUP (Particle Cloud Style) ---
+// --- NEW FLAME FOOD SETUP (Magic Candle Flame Style) ---
 const foodGroup = new THREE.Group();
 
-// 1. Create a soft, circular glow texture (much better for particles)
+// 1. Create a soft glow texture
 const canvas = document.createElement('canvas');
 canvas.width = 64;
 canvas.height = 64;
 const ctx = canvas.getContext('2d');
 const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
-gradient.addColorStop(0, 'rgba(255, 0, 255, 1)');   // Solid Magenta center
-gradient.addColorStop(0.4, 'rgba(150, 0, 255, 0.4)'); // Soft Purple mid
-gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');       // Completely transparent edge
+gradient.addColorStop(0, 'rgba(255, 50, 255, 1)');   // Bright Magenta core
+gradient.addColorStop(0.5, 'rgba(150, 0, 255, 0.3)'); // Purple mid
+gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');       // Transparent edge
 ctx.fillStyle = gradient;
 ctx.fillRect(0, 0, 64, 64);
-
 const particleTexture = new THREE.CanvasTexture(canvas);
 
-// 2. Create many small "Particles" instead of flat planes
-// This creates the "Cloud" effect
-const particleCount = 15; 
+const particleCount = 25; 
 const particles = [];
 
 for (let i = 0; i < particleCount; i++) {
-    // Use SpriteMaterial: this is the secret to the "cloud" look. 
-    // Sprites always face the camera and don't "clip" like planes.
     const spriteMat = new THREE.SpriteMaterial({ 
         map: particleTexture, 
         transparent: true, 
         blending: THREE.AdditiveBlending,
-        depthWrite: false // This prevents the "black spots" (alpha artifacts)
+        depthWrite: false 
     });
 
     const sprite = new THREE.Sprite(spriteMat);
 
-    // Randomize size and position slightly so they form a cloud
-    const scale = 0.5 + Math.random() * 0.8;
-    sprite.scale.set(scale, scale, 1);
-
-    // Spread them out in a small cluster
-    sprite.position.set(
-        (Math.random() - 0.5) * 0.6,
-        (Math.random() - 0.5) * 0.6,
-        (Math.random() - 0.5) * 0.6
-    );
+    // We store custom properties on the sprite to help the flame animation
+    sprite.userData = {
+        speed: 0.2 + Math.random() * 0.3,
+        drift: (Math.random() - 0.5) * 0.1,
+        life: Math.random() // Used to randomize the "start" height
+    };
 
     foodGroup.add(sprite);
     particles.push(sprite);
@@ -511,20 +502,38 @@ food = { position: new THREE.Vector3(), mesh: foodGroup, particles: particles };
                     document.getElementById('pause-ui').style.display = 'block';
                 }
             }
-            // --- FOOD PULSE ANIMATION (Cloud Style) ---
+                        // --- MAGIC FLAME ANIMATION (Fixed Orientation) ---
             if (food.mesh) {
-                const time = performance.now() * 0.003;
+                const time = performance.now() * 0.005;
 
-                // 1. Pulsing the whole group
-                const groupPulse = 1 + Math.sin(time * 2) * 0.2;
-                food.mesh.scale.set(groupPulse, groupPulse, groupPulse);
+                // 1. Determine the "Up" direction (from center of planet to food)
+                const upDir = food.position.clone().normalize();
 
-                // 2. Make individual particles drift/swirl within the cloud
+                // 2. Rotate the whole food group so its local Y axis points "Up" away from the planet
+                // This makes the particle math much simpler!
+                food.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), upDir);
+
                 food.particles.forEach((p, i) => {
-                    const offset = i * 1.5;
-                    p.position.x += Math.sin(time + offset) * 0.005;
-                    p.position.y += Math.cos(time + offset) * 0.005;
-                    p.position.z += Math.sin(time * 0.5 + offset) * 0.005;
+                    // This creates the "rising" effect of a flame
+                    const lifeProgress = (time * p.userData.speed + p.userData.life) % 1;
+
+                    // Position: Local Y goes up, X and Z wiggle slightly
+                    // We scale the width based on height so it's pointy at the top
+                    const height = lifeProgress * 0.8; 
+                    const width = (1.0 - lifeProgress) * 0.4; 
+
+                    p.position.set(
+                        p.userData.drift * Math.sin(time + i) * width,
+                        height, 
+                        p.userData.drift * Math.cos(time + i) * width
+                    );
+
+                    // Size: Particles get smaller as they rise to the "tip" of the flame
+                    const scale = (1.0 - lifeProgress) * 0.5;
+                    p.scale.set(scale, scale, scale);
+
+                    // Opacity: Fade out as they reach the top
+                    p.material.opacity = (1.0 - lifeProgress);
                 });
             }
             renderer.render(scene, camera);
