@@ -263,6 +263,19 @@
             }
             if (validSpawn) { scene.add(obs); obstacles.push(obs); }
         }
+		
+        function syncSnakeLength() {
+            // Ensure the visual array matches the logical array size
+            if (visualSnakePositions.length < snakePositions.length) {
+                for (let i = visualSnakePositions.length; i < snakePositions.length; i++) {
+                    visualSnakePositions.push(snakePositions[i].clone());
+                }
+            } else if (visualSnakePositions.length > snakePositions.length) {
+                while (visualSnakePositions.length > snakePositions.length) {
+                    visualSnakePositions.pop();
+                }
+            }
+        }		
 
         function initGame() {
             snakeMeshes.forEach(m => {
@@ -368,12 +381,6 @@ if (collision) { endGame(); return; }
             }
             while (snakeMeshes.length > snakePositions.length) scene.remove(snakeMeshes.pop());
 
-            // 6. Update Visual Positions
-            if (visualSnakePositions.length < snakePositions.length) {
-                for (let i = visualSnakePositions.length; i < snakePositions.length; i++) visualSnakePositions.push(snakePositions[i].clone());
-            } else if (visualSnakePositions.length > snakePositions.length) {
-                visualSnakePositions.pop();
-            }
         }
 
         function endGame() {
@@ -406,13 +413,7 @@ if (collision) { endGame(); return; }
                         }
                     }
 
-                    if (visualSnakePositions.length > snakePositions.length) {
-                        visualSnakePositions.pop();
-                    } else if (visualSnakePositions.length < snakePositions.length) {
-                        for (let i = visualSnakePositions.length; i < snakePositions.length; i++) {
-                            visualSnakePositions.push(snakePositions[i].clone());
-                        }
-                    }
+                    syncSnakeLength();
 
                     if (snakeMeshes.length > 0) {
                         for (let i = 0; i < snakeMeshes.length; i++) {
