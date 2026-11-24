@@ -45,9 +45,13 @@
         let lastStepTime = 0;
         let food = { position: new THREE.Vector3(), mesh: null };
         let obstacles = [];
-        let visualHeadPos = new THREE.Vector3(RADIUS, 0, 0);
-        let smoothedUp = new THREE.Vector3(0, 1, 0); 
-        const cameraUpTarget = new THREE.Vector3();
+        // --- UPDATED STATE FOR CAMERA ---
+let visualHeadPos = new THREE.Vector3(RADIUS, 0, 0);
+let smoothedUp = new THREE.Vector3(0, 1, 0);
+let cameraTargetPos = new THREE.Vector3(); // The smooth point the camera looks at
+const CAMERA_DISTANCE = 18;
+const CAMERA_LERP_SPEED = 0.05;
+const CAMERA_UP_LERP_SPEED = 0.05;
 
         // --- THREE.JS SETUP ---
         const scene = new THREE.Scene();
@@ -337,45 +341,55 @@ for (let i = 0; i < snakeMeshes.length; i++) {
             document.getElementById('final-score').innerText = `FINAL SCORE: ${score}`;
         }
 
-                                function animate(currentTime) {
-            requestAnimationFrame(animate);
+                        function animate(currentTime) {
+    requestAnimationFrame(animate);
 
-            if (!isGameOver) {
-                if (!isPaused) {
-                    document.getElementById('pause-ui').style.display = 'none';
+    if (!isGameOver) {
+        if (!isPaused) {
+            document.getElementById('pause-ui').style.display = 'none';
 
-                    if (currentTime - lastStepTime >= MOVE_INTERVAL) {
-                        performMovementStep();
-                        lastStepTime = currentTime;
-                    }
-
-                    if (snakeMeshes.length > 0) {
-                        // 1. Smoothly move the logical positions to the visual positions
-                        for (let i = 0; i < snakeMeshes.length; i++) {
-                            visualPositions[i].lerp(targetPositions[i], 0.2);
-                            snakeMeshes[i].position.copy(visualPositions[i]);
-                        }
-
-                        // 2. Camera follows the VISUAL head
-                        visualHeadPos.copy(visualPositions[0]); 
-                        camera.position.lerp(visualHeadPos.clone().normalize().multiplyScalar(18), 0.05);
-
-                        const headNormal = visualHeadPos.clone().normalize();
-                        const tempRight = new THREE.Vector3().crossVectors(headNormal, moveDir).normalize();
-                        cameraUpTarget.copy(new THREE.Vector3().crossVectors(tempRight, headNormal).normalize());
-                        smoothedUp.lerp(cameraUpTarget, 0.05); 
-                        camera.up.copy(smoothedUp);
-                        camera.lookAt(visualHeadPos);
-
-                        light.position.copy(visualHeadPos.clone().multiplyScalar(2));
-                    }
-                } else {
-                    document.getElementById('pause-ui').style.display = 'block';
-                }
+            if (currentTime - lastStepTime >= MOVE_INTERVAL) {
+                performMovementStep();
+                lastStepTime = currentTime;
             }
 
-            renderer.render(scene, camera);
+            if (snakeMeshes.length > 0) {
+                // 1. Smoothly move the snake segments
+                for (let i = 0; i < snakeMeshes.length; i++) {
+                    visualPositions[i].lerp(targetPositions[i], 0.2);
+                    snakeMeshes[i].position.copy(visualPositions[i]);
+                }
+
+                // 2. Update Camera Logic
+                const headPos = visualPositions[0];
+                const headNormal = headPos.clone().normalize();
+
+                // A. Smooth Camera Position
+                // We follow a point offset from the head along the normal
+                const idealCameraPos = headNormal.clone().multiplyScalar(CAMERA_DISTANCE);
+                camera.position.lerp(idealCameraPos, CAMERA_LERP_SPEED);
+
+                // B. Smooth Camera Orientation (Up Vector)
+                // To prevent jitter, we derive 'Up' from the smoothed head normal
+                // This ensures the camera rotates relative to the sphere's surface
+                smoothedUp.lerp(headNormal, CAMERA_UP_LERP_SPEED);
+                camera.up.copy(smoothedUp);
+
+                // C. Smooth Camera LookAt (Target)
+                // We lerp the target point to the head to prevent 'snapping' during turns
+                cameraTargetPos.lerp(headPos, CAMERA_LERP_SPEED);
+                camera.lookAt(cameraTargetPos);
+
+                // 3. Light Follow
+                light.position.copy(headPos.clone().multiplyScalar(2));
+            }
+        } else {
+            document.getElementById('pause-ui').style.display = 'block';
         }
+    }
+
+    renderer.render(scene, camera);
+}
 
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
