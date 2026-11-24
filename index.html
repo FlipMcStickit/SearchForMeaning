@@ -187,7 +187,34 @@
         }
 
         function spawnObstacle() {
-            const obs = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 0.7), new THREE.MeshPhongMaterial({ color: 0x444444 }));
+            // 1. Create a complex shape (Icosahedron)
+            const geometry = new THREE.IcosahedronGeometry(0.6, 0); // Low detail = sharper edges
+
+            // 2. Randomize the shape by moving its vertices
+            const positionAttribute = geometry.getAttribute('position');
+            const vertex = new THREE.Vector3();
+            for (let i = 0; i < positionAttribute.count; i++) {
+                vertex.fromBufferAttribute(positionAttribute, i);
+                // Move each corner by a random amount to make it look "crystalized"
+                const factor = 0.3 + Math.random() * 0.4; 
+                vertex.multiplyScalar(factor);
+                positionAttribute.setXYZ(i, vertex.x, vertex.y, vertex.z);
+            }
+            geometry.computeVertexNormals(); // Recalculate lighting for the new shape
+
+            // 3. Create a random shade of green
+            const greenShades = [0x00ff88, 0x22aa44, 0x00cc66, 0xadffaf, 0x004422];
+            const randomColor = greenShades[Math.floor(Math.random() * greenShades.length)];
+
+            // 4. Use MeshPhongMaterial so it reacts to the light (shiny/crystalline look)
+            const material = new THREE.MeshPhongMaterial({ 
+                color: randomColor, 
+                flatShading: true, // This is key! It gives it that faceted crystal look
+                shininess: 100 
+            });
+
+            const obs = new THREE.Mesh(geometry, material);
+
             let validSpawn = false, attempts = 0, startPos = snakePositions[0];
             while (!validSpawn && attempts < 50) {
                 attempts++;
