@@ -173,36 +173,51 @@
 
         function createSegment() {
             const segmentGroup = new THREE.Group();
-            const pCount = 12; 
-            for (let i = 0; i < pCount; i++) {
-                const canvas = document.createElement('canvas');
-                canvas.width = 32; canvas.height = 32;
-                const ctx = canvas.getContext('2d');
-                const grad = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
-                const colors = ['rgba(0, 255, 255, 0.5)', 'rgba(255, 0, 255, 0.5)', 'rgba(255, 100, 0, 0.5)'];
-                const chosenColor = colors[Math.floor(Math.random() * colors.length)];
-                grad.addColorStop(0, chosenColor);
+
+            // --- REUSING HEAD LOGIC FOR TAIL ---
+            // We recreate the texture logic from createHead but simplified for the tail
+            const canvas = document.createElement('canvas');
+            canvas.width = 256; canvas.height = 256;
+            const context = canvas.getContext('2d');
+            function drawBlob(x, y, radius, color) {
+                const grad = context.createRadialGradient(x, y, 0, x, y, radius);
+                grad.addColorStop(0, color);
                 grad.addColorStop(1, 'rgba(0,0,0,0)');
-                ctx.fillStyle = grad;
-                ctx.fillRect(0, 0, 32, 32);
-                const texture = new THREE.CanvasTexture(canvas);
-                const mat = new THREE.SpriteMaterial({ map: texture, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
-                const sprite = new THREE.Sprite(mat);
-
-                // --- THE FIX IS HERE ---
-                // We add 'segmentIndex' to userData so the animate loop knows which part of the tail it belongs to
-                sprite.userData = { 
-                    offset: Math.random() * Math.PI * 2, 
-                    speed: 0.5 + Math.random() * 1.5 
-                };
-
-                sprite.position.set((Math.random()-0.5)*0.4, (Math.random()-0.5)*0.4, (Math.random()-0.5)*0.4);
-                const s = 0.3 + Math.random() * 0.5;
-                sprite.scale.set(s, s, s);
-                segmentGroup.add(sprite);
+                context.fillStyle = grad;
+                context.beginPath();
+                context.arc(x, y, radius, 0, Math.PI * 2);
+                context.fill();
             }
-            const coreMat = new THREE.MeshBasicMaterial({ color: 0x00ffaa, transparent: true, opacity: 0.2, blending: THREE.AdditiveBlending });
-            segmentGroup.add(new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), coreMat));
+            context.fillStyle = 'rgba(0, 0, 0, 0)'; 
+            context.fillRect(0, 0, 256, 256);
+            // Use the same colors as the head (Orange/Yellow)
+            for(let i=0; i<40; i++) drawBlob(Math.random()*256, Math.random()*256, 10+Math.random()*45, 'rgba(255, 60, 0, 0.5)'); 
+            for(let i=0; i<20; i++) drawBlob(Math.random()*256, Math.random()*256, 5+Math.random()*25, 'rgba(255, 255, 180, 0.4)'); 
+
+            const glowTexture = new THREE.CanvasTexture(canvas);
+
+            // Scale is set to 0.5 (50% of the head)
+            const scale = 0.2; 
+            const coreMat = new THREE.MeshBasicMaterial({ map: glowTexture, transparent: true, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+            const auraMat = new THREE.MeshBasicMaterial({ map: glowTexture, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, opacity: 0.5 });
+
+            // Create 3 smaller layers of glow to mimic the head's structure
+            const aura1 = new THREE.Mesh(new THREE.SphereGeometry(0.4 * scale, 32, 32), auraMat);
+            aura1.scale.set(1.2, 0.8, 1.2); 
+            segmentGroup.add(aura1);
+
+            const aura2 = new THREE.Mesh(new THREE.SphereGeometry(0.7 * scale, 32, 32), auraMat);
+            aura2.rotation.set(Math.PI / 3, Math.PI / 4, 0); 
+            segmentGroup.add(aura2);
+
+            const aura3 = new THREE.Mesh(new THREE.SphereGeometry(1.0 * scale, 32, 32), auraMat);
+            aura3.rotation.set(0, Math.PI / 2, Math.PI / 3); 
+            segmentGroup.add(aura3);
+
+            // Add a small core light
+            const glowLight = new THREE.PointLight(0xffaa00, 40, 5); 
+            segmentGroup.add(glowLight);
+
             return segmentGroup;
         }
 
