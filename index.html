@@ -2,280 +2,294 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Snake: Spherical Stability</title>
+    <title>Snake: Spherical Odyssey Fixed</title>
     <style>
-        body { margin: 0; background-color: #05050a; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; color: white; font-family: 'Georgia', serif; }
-        canvas { border: 2px solid #222; background-color: #000; box-shadow: 0 0 50px rgba(0, 0, 0, 0.5); }
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; }
+        #ui {
+            position: absolute; top: 20px; width: 100%; text-align: center;
+            color: #00ffaa; pointer-events: none; text-shadow: 0 0 10px #00ffaa;
+        }
+        #game-over {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: white; text-align: center; display: none; background: rgba(0,0,0,0.9);
+            padding: 40px; border: 2px solid #ff4444; border-radius: 15px; z-index: 10;
+        }
+        button { 
+            background: #00ffaa; border: none; padding: 10px 20px; 
+            font-weight: bold; cursor: pointer; margin-top: 20px; 
+        }
     </style>
 </head>
 <body>
-    <canvas id="gameCanvas" width="600" height="400"></canvas>
 
-    <script>
-        const canvas = document.getElementById('gameCanvas');
-        const ctx = canvas.getContext('2d');
+    <div id="ui">
+        <h1 id="score">SCORE: 0</h1>
+    </div>
 
-        const SPHERE_RADIUS = 180;
-        const MOVE_STEP = 0.15; // This is now an angular step (radians)
-        const VIEW_DISTANCE = 500;
-        let sparkSize = 12;
+    <div id="game-over">
+        <h1 style="color: #ff4444;">VOID CONSUMED YOU</h1>
+        <p id="final-score"></p>
+        <button onclick="location.reload()">RESTART</button>
+    </div>
 
-        // Snake is now a list of angles: {theta, phi}
-        let snake = [{theta: 0, phi: 0}]; 
-        let food = {theta: 0, phi: 0};
-        let obstacles = [];
-        let inputQueue = [];
-        let isGameOver = false;
-        let lastUpdateTime = 0;
-        let moveInterval = 120;
-
-        function resetGame() {
-            snake = [{theta: 0, phi: 0}];
-            inputQueue = [];
-            isGameOver = false;
-            generateObstacles();
-            spawnFood();
-        }
-
-        // Converts angles to actual 3D X, Y, Z coordinates
-        function getCartesian(theta, phi) {
-            return {
-                x: SPHERE_RADIUS * Math.sin(theta) * Math.cos(phi),
-                y: SPHERE_RADIUS * Math.sin(theta) * Math.sin(phi),
-                z: SPHERE_RADIUS * Math.cos(theta)
-            };
-        }
-
-        function spawnFood() {
-            food.theta = Math.random() * Math.PI;
-            food.phi = Math.random() * Math.PI * 2;
-        }
-
-        function generateObstacles() {
-            obstacles = [];
-            for(let i=0; i<15; i++) {
-                obstacles.push({
-                    theta: Math.random() * Math.PI,
-                    phi: Math.random() * Math.PI * 2
-                });
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
             }
         }
-
-        window.addEventListener('keydown', (e) => {
-            if (isGameOver && (e.key === ' ' || e.key === 'Enter')) { resetGame(); return; }
-            if (e.key === 'ArrowUp' || e.key === 'w')    inputQueue.push({ dt: -MOVE_STEP, dp: 0 });
-            if (e.key === 'ArrowDown' || e.key === 's')  inputQueue.push({ dt: MOVE_STEP, dp: 0 });
-            if (e.key === 'ArrowLeft' || e.key === 'a')  inputQueue.push({ dt: 0, dp: -MOVE_STEP });
-            if (e.key === 'ArrowRight' || e.key === 'd') inputQueue.push({ dt: 0, dp: MOVE_STEP });
-        });
-
-        function update() {
-            let currentTime = Date.now();
-            if (currentTime - lastUpdateTime < moveInterval) return;
-            lastUpdateTime = currentTime;
-
-            if (inputQueue.length > 0) {
-                const move = inputQueue.shift();
-                const head = snake[0];
-
-                // New head is just the old angles + movement
-                const nextTheta = Math.max(0.01, Math.min(Math.PI - 0.01, head.theta + move.dt));
-                const nextPhi = head.phi + move.dp;
-
-                const nextPos = getCartesian(nextTheta, nextPhi);
-
-                // Collision check with obstacles
-                let hitObstacle = false;
-                obstacles.forEach(obs => {
-                    const obsPos = getCartesian(obs.theta, obs.phi);
-                    const dist = Math.hypot(nextPos.x - obsPos.x, nextPos.y - obsPos.y, nextPos.z - obsPos.z);
-                    if (dist < 25) hitObstacle = true;
-                });
-
-                // Collision check with self
-                let hitSelf = false;
-                snake.forEach((seg, idx) => {
-                    if (idx === 0) return;
-                    const segPos = getCartesian(seg.theta, seg.phi);
-                    const dist = Math.hypot(nextPos.x - segPos.x, nextPos.y - segPos.y, nextPos.z - segPos.z);
-                    if (dist < 15) hitSelf = true;
-                });
-
-                if (hitObstacle || hitSelf) {
-                    isGameOver = true;
-                } else {
-                    snake.unshift({theta: nextTheta, phi: nextPhi});
-
-                    // Food check
-                    const foodPos = getCartesian(food.theta, food.phi);
-                    const foodDist = Math.hypot(nextPos.x - foodPos.x, nextPos.y - foodPos.y, nextPos.z - foodPos.z);
-
-                    if (foodDist < 30) {
-                        spawnFood();
-                    } else {
-                        snake.pop();
-                    }
-                }
-            }
-        }
-
-        function draw() {
-            update();
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            if (isGameOver) {
-                ctx.fillStyle = "white";
-                ctx.textAlign = "center";
-                ctx.font = "30px Georgia";
-                ctx.fillText("THE VOID CONSUMES ALL", canvas.width / 2, canvas.height / 2);
-                ctx.font = "16px Georgia";
-                ctx.fillText("Press Space to restart", canvas.width / 2, canvas.height / 2 + 40);
-            } else {
-                const head = snake[0];
-
-                // The Projection:
-                // To keep the head in center, we rotate every point by the NEGATIVE of the head's angles.
-                const project = (theta, phi) => {
-                    const p = getCartesian(theta, phi);
-
-                    // 1. Rotate around Y to align Phi
-                    const phiDiff = phi - head.phi;
-                    const x1 = p.x * Math.cos(phiDiff) + p.z * Math.sin(phiDiff);
-                    const z1 = -p.x * Math.sin(phiDiff) + p.z * Math.cos(phiDiff);
-                    const y1 = p.y;
-
-                    // 2. Rotate around X to align Theta
-                    const thetaDiff = theta - head.theta;
-                    // We actually want the view to be looking from the "front", 
-                    // so we adjust the rotation to make the head appear at (0,0,R)
-                    const y2 = y1 * Math.cos(thetaDiff) - z1 * Math.sin(thetaDiff);
-                    const z2 = y1 * Math.sin(thetaDiff) + z1 * Math.cos(thetaDiff);
-
-                    // After these rotations, the head should be roughly at (0, 0, R)
-                    // But we need to flip the view so we are looking AT the head.
-                    // To make it easy: we'll use a simplified view.
-
-                    // Let's use a more robust rotation: Rotate world so head is at (0,0,R)
-                    // This is the "Camera" transformation.
-                    const viewP = rotatePointToHead(p, head);
-
-                    const scale = VIEW_DISTANCE / (VIEW_DISTANCE - viewP.z);
-                    const isVisible = viewP.z > -100;
-
-                    return {
-                        x: viewP.x * scale + canvas.width / 2,
-                        y: viewP.y * scale + canvas.height / 2,
-                        scale: scale,
-                        visible: isVisible
-                    };
-                };
-
-                // Robust rotation: brings any point to be relative to the head
-                function rotatePointToHead(p, head) {
-                    // This is the magic part. We treat the head as the orientation.
-                    // We rotate the point by the inverse of the head's spherical rotation.
-                    // A simpler way to think about it:
-                    // 1. Find angle difference
-                    const dPhi = p.phi - head.phi; // (Need to pass phi in)
-                    // This is getting complex. Let's simplify the projection.
-                    // Let's just use the Cartesian coordinates and a standard rotation matrix.
-                }
-
-                // RE-SIMPLIFIED PROJECTION:
-                // Instead of complex math, we'll just rotate the object by the inverse of the head's position
-                const projectSimple = (targetTheta, targetPhi) => {
-                    // 1. Get target Cartesian
-                    const p = getCartesian(targetTheta, targetPhi);
-                    // 2. Get head Cartesian
-                    const h = getCartesian(head.theta, head.phi);
-
-                    // 3. Rotation to bring Head to (0,0,R)
-                    // We find the rotation that transforms Head -> (0,0,R)
-                    // We'll use the angles directly.
-                    const rotX = head.theta;
-                    const rotY = head.phi;
-
-                    // Rotate point by -rotY (around Y axis)
-                    let x = p.x * Math.cos(-rotY) + p.z * Math.sin(-rotY);
-                    let z = -p.x * Math.sin(-rotY) + p.z * Math.cos(-rotY);
-                    let y = p.y;
-
-                    // Rotate point by -rotX (around X axis)
-                    let y2 = y * Math.cos(-rotX) - z * Math.sin(-rotX);
-                    let z2 = y * Math.sin(-rotX) + z * Math.cos(-rotX);
-
-                    // Since we rotated the WHOLE world, we must look at the head 
-                    // which is now at (0, 0, R) from the center. 
-                    // We want to look at it from "outside" the sphere.
-                    // So we shift the view.
-                    const viewP = { x: x, y: y2, z: z2 };
-
-                    const scale = VIEW_DISTANCE / (VIEW_DISTANCE - viewP.z);
-                    const isVisible = viewP.z > -50; 
-
-                    return {
-                        x: viewP.x * scale + canvas.width / 2,
-                        y: viewP.y * scale + canvas.height / 2,
-                        scale: scale,
-                        visible: isVisible
-                    };
-                };
-
-                // --- DRAW GRID ---
-                ctx.strokeStyle = "#1a1a3a";
-                for (let i = -4; i <= 4; i++) {
-                    const lat = (i / 4) * (Math.PI / 2);
-                    ctx.beginPath();
-                    let first = true;
-                    for (let lon = 0; lon <= Math.PI * 2; lon += 0.4) {
-                        const proj = projectSimple(lat, lon);
-                        if (proj.visible) {
-                            if (first) ctx.moveTo(proj.x, proj.y);
-                            else ctx.lineTo(proj.x, proj.y);
-                            first = false;
-                        }
-                    }
-                    ctx.stroke();
-                }
-
-                // --- DRAW OBSTACLES ---
-                obstacles.forEach(obs => {
-                    const proj = projectSimple(obs.theta, obs.phi);
-                    if (proj.visible) {
-                        ctx.fillStyle = "#444";
-                        ctx.globalAlpha = Math.min(1, proj.scale * 0.6);
-                        ctx.fillRect(proj.x - sparkSize/2, proj.y - sparkSize/2, sparkSize, sparkSize);
-                    }
-                });
-
-                // --- DRAW FOOD ---
-                const fp = projectSimple(food.theta, food.phi);
-                if (fp.visible) {
-                    ctx.fillStyle = "#ff4444";
-                    ctx.globalAlpha = Math.min(1, fp.scale);
-                    ctx.beginPath();
-                    ctx.arc(fp.x, fp.y, sparkSize * fp.scale, 0, Math.PI * 2);
-                    ctx.fill();
-                }
-
-                // --- DRAW SNAKE ---
-                snake.forEach((seg, i) => {
-                    const proj = projectSimple(seg.theta, seg.phi);
-                    if (proj.visible) {
-                        ctx.fillStyle = i === 0 ? "#00ffaa" : "#008866";
-                        ctx.globalAlpha = Math.min(1, proj.scale);
-                        ctx.fillRect(proj.x - sparkSize/2, proj.y - sparkSize/2, sparkSize, sparkSize);
-                    }
-                });
-                ctx.globalAlpha = 1.0;
-            }
-
-            requestAnimationFrame(draw);
-        }
-
-        resetGame();
-        draw();
     </script>
+
+<script type="module">
+    import * as THREE from 'three';
+
+    // --- CONFIG ---
+    const RADIUS = 10;
+    const STEP_DISTANCE = 0.3; 
+    const MOVE_SPEED = 0.15; 
+
+    let score = 0;
+    let isGameOver = false;
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    // Background Stars
+    const starGeo = new THREE.BufferGeometry();
+    const starCoords = [];
+    for(let i=0; i<2000; i++) {
+        starCoords.push((Math.random()-0.5)*400, (Math.random()-0.5)*400, (Math.random()-0.5)*400);
+    }
+    starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starCoords, 3));
+    const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 0.7 });
+    scene.add(new THREE.Points(starGeo, starMat));
+
+    scene.add(new THREE.AmbientLight(0x404040, 2));
+    const light = new THREE.PointLight(0x00ffaa, 100, 50);
+    scene.add(light);
+
+    // The Planet
+    const sphereGeo = new THREE.SphereGeometry(RADIUS, 48, 48);
+    const sphereMat = new THREE.MeshPhongMaterial({ color: 0x111122, wireframe: true });
+    const planet = new THREE.Mesh(sphereGeo, sphereMat);
+    scene.add(planet);
+
+    // --- GAME STATE ---
+    let snakePositions = [new THREE.Vector3(RADIUS, 0, 0)]; 
+    let snakeMeshes = [];
+    let food = { position: new THREE.Vector3(), mesh: null };
+    let obstacles = [];
+
+    // moveDir is our "Heading". It must always be perpendicular to the position vector.
+    let moveDir = new THREE.Vector3(0, 1, 0); 
+    let visualHeadPos = new THREE.Vector3(RADIUS, 0, 0);
+
+    function spawnFood() {
+        if(food.mesh) scene.remove(food.mesh);
+        const geo = new THREE.SphereGeometry(0.4, 16, 16);
+        const mat = new THREE.MeshPhongMaterial({ color: 0xff4444, emissive: 0xff0000 });
+        food.mesh = new THREE.Mesh(geo, mat);
+        const phi = Math.random() * Math.PI * 2;
+        const theta = Math.acos((Math.random() * 2) - 1);
+        food.position.set(
+            RADIUS * Math.sin(theta) * Math.cos(phi),
+            RADIUS * Math.sin(theta) * Math.sin(phi),
+            RADIUS * Math.cos(theta)
+        );
+        food.mesh.position.copy(food.position);
+        scene.add(food.mesh);
+    }
+
+    function spawnObstacle() {
+        const geo = new THREE.BoxGeometry(0.7, 0.7, 0.7);
+        const mat = new THREE.MeshPhongMaterial({ color: 0x444444 });
+        const obs = new THREE.Mesh(geo, mat);
+        const phi = Math.random() * Math.PI * 2;
+        const theta = Math.acos((Math.random() * 2) - 1);
+        obs.position.set(
+            RADIUS * Math.sin(theta) * Math.cos(phi),
+            RADIUS * Math.sin(theta) * Math.sin(phi),
+            RADIUS * Math.cos(theta)
+        );
+        scene.add(obs);
+        obstacles.push(obs);
+    }
+
+    function initGame() {
+        snakeMeshes.forEach(m => scene.remove(m));
+        obstacles.forEach(o => scene.remove(o));
+        if(food.mesh) scene.remove(food.mesh);
+        snakePositions = [new THREE.Vector3(RADIUS, 0, 0)];
+        snakeMeshes = [];
+        obstacles = [];
+        score = 0;
+        isGameOver = false;
+        moveDir.set(0, 1, 0); 
+        document.getElementById('score').innerText = "SCORE: 0";
+        document.getElementById('game-over').style.display = 'none';
+        for(let i=0; i<30; i++) spawnObstacle();
+        spawnFood();
+    }
+
+    // --- FIXED CONTROLS (Hard Turns) ---
+    window.addEventListener('keydown', (e) => {
+        if (isGameOver) return;
+
+        const pos = snakePositions[0].clone().normalize();
+        // The 'Right' vector is always perpendicular to the position and current heading
+        const rightVec = new THREE.Vector3().crossVectors(pos, moveDir).normalize();
+        // The 'Up' vector (surface normal)
+        const upVec = pos.clone();
+
+        // We want 90-degree turns. We calculate a new moveDir 
+        // by picking either the 'right' vector or a vector perpendicular to 'right' and 'up'.
+
+        if (e.key === 'a' || e.key === 'ArrowLeft') {
+            // Turn Left: New heading is the current 'right' vector rotated 90 degrees
+            // Actually, the easiest way: New heading = Right vector rotated around Up axis.
+            // To make it a HARD turn:
+            moveDir.copy(new THREE.Vector3().crossVectors(upVec, rightVec).normalize());
+        }
+        if (e.key === 'd' || e.key === 'ArrowRight') {
+            // Turn Right
+            moveDir.copy(rightVec);
+        }
+        if (e.key === 'w' || e.key === 'ArrowUp') {
+            // Turn "Up" (relative to surface)
+            // This is tricky on a sphere. Let's make W/S rotate the heading 
+            // around the 'Right' axis.
+            const turnRight = new THREE.Vector3().crossVectors(rightVec, pos).normalize();
+            moveDir.copy(turnRight);
+        }
+        if (e.key === 's' || e.key === 'ArrowDown') {
+            const turnRight = new THREE.Vector3().crossVectors(pos, rightVec).normalize();
+            moveDir.copy(turnRight);
+        }
+
+        // CRITICAL: Always project moveDir onto the tangent plane of the current position
+        // This prevents the "slowing down / sinking into sphere" bug.
+        moveDir.projectOnPlane(pos); 
+        moveDir.normalize();
+    });
+
+    let lastMoveTime = 0;
+    function update(time) {
+        if (isGameOver) return;
+        if (time - lastMoveTime < MOVE_SPEED * 1000) return;
+        lastMoveTime = time;
+
+        const currentHead = snakePositions[0].clone();
+
+        // Move direction must be a tangent
+        const direction = moveDir.clone().normalize();
+
+        // Calculate New Position
+        const newPos = currentHead.clone()
+            .add(direction.multiplyScalar(STEP_DISTANCE))
+            .normalize()
+            .multiplyScalar(RADIUS);
+
+        // Collision Checks
+        for(let i=1; i<snakePositions.length; i++) {
+            if (newPos.distanceTo(snakePositions[i]) < 0.5) endGame();
+        }
+        obstacles.forEach(obs => {
+            if (newPos.distanceTo(obs.position) < 0.8) endGame();
+        });
+        if (newPos.distanceTo(food.position) < 1.0) {
+            score += 10;
+            document.getElementById('score').innerText = `SCORE: ${score}`;
+            spawnFood();
+        } else {
+            if(snakeMeshes.length > 0) {
+                const tail = snakeMeshes.pop();
+                scene.remove(tail);
+            }
+            snakePositions.pop();
+        }
+
+        if (isGameOver) return;
+
+        // Update the moveDir to be the tangent at the NEW position
+        // This prevents cumulative math errors
+        moveDir.projectOnPlane(newPos);
+        moveDir.normalize();
+
+        snakePositions.unshift(newPos.clone());
+
+        // Update Meshes
+        if (snakeMeshes.length === 0) {
+            // Create the head mesh with a "nose" indicator
+            const headGroup = new THREE.Group();
+
+            const bodyGeo = new THREE.BoxGeometry(0.6, 0.6, 0.6);
+            const bodyMat = new THREE.MeshPhongMaterial({ color: 0x00ffaa });
+            const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+            headGroup.add(bodyMesh);
+
+            // ADD A NOSE (Indicator)
+            const noseGeo = new THREE.ConeGeometry(0.3, 0.8, 8);
+            const noseMat = new THREE.MeshPhongMaterial({ color: 0xffffff });
+            const noseMesh = new THREE.Mesh(noseGeo, noseMat);
+            noseMesh.rotation.x = Math.PI / 2;
+            noseMesh.position.z = -0.5; // Pointing forward
+            headGroup.add(noseMesh);
+
+            scene.add(headGroup);
+            snakeMeshes.unshift(headGroup);
+        } else {
+            const headGeo = new THREE.BoxGeometry(0.6, 0.6, 0.6);
+            const headMat = new THREE.MeshPhongMaterial({ color: 0x00ffaa });
+            const headMesh = new THREE.Mesh(headGeo, headMat);
+            scene.add(headMesh);
+            snakeMeshes.unshift(headMesh);
+        }
+
+        for(let i=0; i<snakePositions.length; i++) {
+            snakeMeshes[i].position.copy(snakePositions[i]);
+            if (i < snakePositions.length - 1) {
+                snakeMeshes[i].lookAt(snakePositions[i+1]);
+            } else {
+                // Head looks where it's going
+                const lookTarget = snakePositions[i].clone().add(moveDir);
+                snakeMeshes[i].lookAt(lookTarget);
+            }
+        }
+    }
+
+    function endGame() {
+        isGameOver = true;
+        document.getElementById('game-over').style.display = 'block';
+        document.getElementById('final-score').innerText = `FINAL SCORE: ${score}`;
+    }
+
+    function animate(time) {
+        requestAnimationFrame(animate);
+        update(time);
+
+        if (!isGameOver && snakeMeshes.length > 0) {
+            const actualHeadPos = snakeMeshes[0].position;
+            visualHeadPos.lerp(actualHeadPos, 0.1);
+            const camOffset = visualHeadPos.clone().normalize().multiplyScalar(18);
+            camera.position.lerp(camOffset, 0.05); 
+            camera.lookAt(visualHeadPos);
+            light.position.copy(visualHeadPos.clone().multiplyScalar(2));
+        }
+
+        renderer.render(scene, camera);
+    }
+
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    initGame();
+    animate(0);
+</script>
 </body>
 </html>
