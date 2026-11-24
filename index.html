@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Snake: THE VOID IS CONSTANT</title>
+    <title>Snake: Spherical Odyssey - V20 FINAL</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', monospace; }
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; }
         #ui { position: absolute; top: 20px; width: 100%; text-align: center; color: #00ffaa; pointer-events: none; text-shadow: 0 0 10px #00ffaa; }
-        #game-over { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; text-align: center; display: none; background: rgba(0,0,0,0.95); padding: 40px; border: 2px solid #ff4444; z-index: 10; }
+        #game-over { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; text-align: center; display: none; background: rgba(0,0,0,0.9); padding: 40px; border: 2px solid #ff4444; border-radius: 15px; z-index: 10; }
         button { background: #00ffaa; border: none; padding: 10px 20px; font-weight: bold; cursor: pointer; margin-top: 20px; }
     </style>
 </head>
@@ -25,43 +25,42 @@
     <script type="module">
         import * as THREE from 'three';
 
-        // --- CONSTANTS (HARD-CODED) ---
+        // --- CONFIGURATION ---
         const RADIUS = 10;
         const STEP_DISTANCE = 0.45;
-        const STEPS_PER_SECOND = 8; 
-        const FRAMES_PER_STEP = Math.floor(60 / STEPS_PER_SECOND); // Target step every X frames
+        const MOVE_INTERVAL = 150; // Milliseconds between steps (Lower = Faster)
 
         // --- STATE ---
         let score = 0;
         let isGameOver = false;
-        let frameCounter = 0;
-        let inputLocked = false; // Prevents multi-tap bug
-
         let snakePositions = []; 
         let snakeMeshes = [];    
         let moveDir = new THREE.Vector3(0, 1, 0);
-        let nextMoveDir = new THREE.Vector3(0, 1, 0);
+        let queuedDir = null; // The "Input Buffer"
 
+        let lastStepTime = 0;
         let food = { position: new THREE.Vector3(), mesh: null };
         let obstacles = [];
         let visualHeadPos = new THREE.Vector3(RADIUS, 0, 0);
 
-        // --- THREE.JS SETUP ---
+        // --- SCENE SETUP ---
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
 
-        // Assets
+        // Starfield
         const starGeo = new THREE.BufferGeometry();
         const starCoords = [];
         for(let i=0; i<2000; i++) starCoords.push((Math.random()-0.5)*400, (Math.random()-0.5)*400, (Math.random()-0.5)*400);
         starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starCoords, 3));
         scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.7 })));
+
         scene.add(new THREE.AmbientLight(0x404040, 2));
         const light = new THREE.PointLight(0x00ffaa, 100, 50);
         scene.add(light);
+
         const planet = new THREE.Mesh(new THREE.SphereGeometry(RADIUS, 48, 48), new THREE.MeshPhongMaterial({ color: 0x111122, wireframe: true }));
         scene.add(planet);
 
@@ -103,62 +102,82 @@
             snakeMeshes.forEach(m => scene.remove(m));
             obstacles.forEach(o => scene.remove(o));
             if(food.mesh) scene.remove(food.mesh);
+
             snakePositions = [new THREE.Vector3(RADIUS, 0, 0)];
             snakeMeshes = [createHead()];
             scene.add(snakeMeshes[0]);
-            obstacles = []; score = 0; isGameOver = false; frameCounter = 0; inputLocked = false;
+
+            obstacles = []; 
+            score = 0; 
+            isGameOver = false;
             moveDir.set(0, 1, 0);
-            nextMoveDir.copy(moveDir);
+            queuedDir = null;
+            lastStepTime = performance.now();
+
             document.getElementById('score').innerText = "SCORE: 0";
             document.getElementById('game-over').style.display = 'none';
             for(let i=0; i<30; i++) spawnObstacle();
             spawnFood();
         }
 
-        // --- INPUT BUFFERING ---
+        // --- INPUT LOGIC (With Buffering) ---
         window.addEventListener('keydown', (e) => {
-            if (isGameOver || inputLocked) return;
+            if (isGameOver) return;
 
             const currentPos = snakePositions[0].clone().normalize(); 
             const rightVec = new THREE.Vector3().crossVectors(currentPos, moveDir).normalize();
             const upRelativeVec = new THREE.Vector3().crossVectors(rightVec, currentPos).normalize();
 
-            let requestedDir = moveDir.clone();
+            let newDir = moveDir.clone();
 
-            if (e.key === 'a' || e.key === 'ArrowLeft') requestedDir.copy(rightVec);
-            else if (e.key === 'd' || e.key === 'ArrowRight') requestedDir.copy(rightVec.clone().negate());
-            else if (e.key === 'w' || e.key === 'ArrowUp') requestedDir.copy(upRelativeVec);
-            else if (e.key === 's' || e.key === 'ArrowDown') requestedDir.copy(upRelativeVec.clone().negate());
+            if (e.key === 'a' || e.key === 'ArrowLeft') newDir.copy(rightVec);
+            else if (e.key === 'd' || e.key === 'ArrowRight') newDir.copy(rightVec.clone().negate());
+            else if (e.key === 'w' || e.key === 'ArrowUp') newDir.copy(upRelativeVec);
+            else if (e.key === 's' || e.key === 'ArrowDown') newDir.copy(upRelativeVec.clone().negate());
 
-            if (requestedDir.dot(moveDir) < -0.5) return;
+            // Prevent 180-degree turns
+            if (newDir.dot(moveDir) < -0.5) return;
 
-            requestedDir.projectOnPlane(currentPos);
-            requestedDir.normalize();
-            nextMoveDir.copy(requestedDir);
-            inputLocked = true; // LOCK input until next movement step
+            newDir.projectOnPlane(currentPos);
+            newDir.normalize();
+
+            // BUFFER THE INPUT: Instead of changing direction immediately, 
+            // we save it for the next movement step. This prevents the "rapid tap" death.
+            queuedDir = newDir;
         });
 
-        // --- DISCRETE MOVEMENT STEP ---
         function performMovementStep() {
-            inputLocked = false; // UNLOCK input
-            moveDir.copy(nextMoveDir);
+            // Apply the buffered direction if one exists
+            if (queuedDir !== null) {
+                moveDir.copy(queuedDir);
+                queuedDir = null;
+            }
+
             const currentPos = snakePositions[0].clone();
 
+            // Calculate new position
             const newPos = currentPos.clone()
                 .add(moveDir.clone().multiplyScalar(STEP_DISTANCE))
                 .normalize() 
                 .multiplyScalar(RADIUS);
 
+            // Keep moveDir tangent to the sphere
             moveDir.projectOnPlane(newPos.clone().normalize());
             moveDir.normalize();
 
             // Collision: Self
             for(let i=1; i<snakePositions.length; i++) {
-                if (newPos.distanceTo(snakePositions[i]) < 0.5) { endGame(); return; }
+                if (newPos.distanceTo(snakePositions[i]) < 0.5) { 
+                    endGame(); 
+                    return; 
+                }
             }
             // Collision: Obstacles
             for(let i=0; i<obstacles.length; i++) { 
-                if (newPos.distanceTo(obstacles[i].position) < 0.8) { endGame(); return; }
+                if (newPos.distanceTo(obstacles[i].position) < 0.8) { 
+                    endGame(); 
+                    return; 
+                }
             }
 
             // Collision: Food
@@ -172,7 +191,7 @@
             snakePositions.unshift(newPos.clone());
             if (!eating) snakePositions.pop();
 
-            // Mesh management
+            // Sync Meshes
             while (snakeMeshes.length < snakePositions.length) {
                 const m = snakeMeshes.length === 0 ? createHead() : createSegment();
                 snakeMeshes.push(m);
@@ -182,10 +201,10 @@
                 scene.remove(snakeMeshes.pop());
             }
 
-            // Orientation
             for (let i = 0; i < snakePositions.length; i++) {
                 snakeMeshes[i].position.copy(snakePositions[i]);
                 const upVector = snakePositions[i].clone().normalize();
+
                 if (i < snakePositions.length - 1) {
                     snakeMeshes[i].lookAt(snakePositions[i+1]);
                     snakeMeshes[i].up.copy(upVector);
@@ -203,25 +222,21 @@
             document.getElementById('final-score').innerText = `FINAL SCORE: ${score}`;
         }
 
-        // --- THE ENGINE ---
-        function animate() {
+        function animate(currentTime) {
             requestAnimationFrame(animate);
 
             if (!isGameOver) {
-                frameCounter++;
-
-                // FIXED STEP: This is the key. No math.no delta. 
-                // Just: "Every N frames, move."
-                if (frameCounter >= FRAMES_PER_STEP) {
+                // HIGH PRECISION TIMING
+                // This prevents the "slowing down" bug by using the system clock 
+                // instead of frame counts or delta accumulation.
+                if (currentTime - lastStepTime >= MOVE_INTERVAL) {
                     performMovementStep();
-                    frameCounter = 0;
+                    lastStepTime = currentTime;
                 }
 
-                // CAMERA: Visual Smoothing (Lerp)
-                // We lerp toward the position, but the position only changes every FRAMES_PER_STEP.
-                // This creates a smooth "floaty" feeling without affecting movement speed.
+                // Visual Camera Smoothing
                 if (snakeMeshes.length > 0) {
-                    visualHeadPos.lerp(snakeMeshes[0].position, 0.15);
+                    visualHeadPos.lerp(snakeMeshes[0].position, 0.1);
                     camera.position.lerp(visualHeadPos.clone().normalize().multiplyScalar(18), 0.05);
                     camera.lookAt(visualHeadPos);
                     light.position.copy(visualHeadPos.clone().multiplyScalar(2));
@@ -238,7 +253,7 @@
         });
 
         initGame();
-        animate();
+        requestAnimationFrame(animate);
     </script>
 </body>
 </html>
