@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Snake: Spherical Odyssey - V21 FINAL</title>
+    <title>Snake: Spherical Odyssey - V22 FIXED</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; }
         #ui { position: absolute; top: 20px; width: 100%; text-align: center; color: #00ffaa; pointer-events: none; text-shadow: 0 0 10px #00ffaa; }
@@ -37,13 +37,17 @@
         let snakeMeshes = [];    
         let moveDir = new THREE.Vector3(0, 1, 0);
 
-        // THE FIX: Input Queue. Stores multiple turns so no input is lost.
+        // Input Buffer
         let inputQueue = []; 
 
         let lastStepTime = 0;
         let food = { position: new THREE.Vector3(), mesh: null };
         let obstacles = [];
         let visualHeadPos = new THREE.Vector3(RADIUS, 0, 0);
+
+        // THE FIX: Growth Buffer flag
+        // If true, the head ignores the tail for exactly one movement step
+        let growthBuffer = false;
 
         // --- THREE.JS SETUP ---
         const scene = new THREE.Scene();
@@ -112,8 +116,9 @@
             obstacles = []; 
             score = 0; 
             isGameOver = false;
+            growthBuffer = false;
             moveDir.set(0, 1, 0);
-            inputQueue = []; // Clear the queue
+            inputQueue = []; 
             lastStepTime = performance.now();
 
             document.getElementById('score').innerText = "SCORE: 0";
@@ -137,42 +142,51 @@
             else if (e.key === 'w' || e.key === 'ArrowUp') newDir.copy(upRelativeVec);
             else if (e.key === 's' || e.key === 'ArrowDown') newDir.copy(upRelativeVec.clone().negate());
 
-            // Prevent 180-degree turns relative to the CURRENT direction
+            // Prevent 180-degree turns
             if (newDir.dot(moveDir) < -0.5) return;
 
             newDir.projectOnPlane(currentPos);
             newDir.normalize();
 
-            // ADD TO QUEUE: We don't overwrite, we append.
             inputQueue.push(newDir.clone());
-
-            // Cap queue size to prevent extreme input lag if someone mashes keys
             if(inputQueue.length > 3) inputQueue.shift();
         });
 
         function performMovementStep() {
-            // If there is a move in the queue, use it!
+            // 1. Process Input Queue (One per step)
             if (inputQueue.length > 0) {
                 moveDir.copy(inputQueue.shift());
             }
 
             const currentPos = snakePositions[0].clone();
 
+            // 2. Calculate New Position
             const newPos = currentPos.clone()
                 .add(moveDir.clone().multiplyScalar(STEP_DISTANCE))
                 .normalize() 
                 .multiplyScalar(RADIUS);
 
+            // Update movement direction for next frame relative to the new spherical position
             moveDir.projectOnPlane(newPos.clone().normalize());
             moveDir.normalize();
 
+            // 3. Collision Detection
+
             // Collision: Self
-            for(let i=1; i<snakePositions.length; i++) {
+            // We check against snakePositions. 
+            // If growthBuffer is active, we skip checking against the very last segment.
+            for(let i=1; i < snakePositions.length; i++) {
+                // THE FIX: If we just grew, skip collision check for the newest segment for one step
+                if (growthBuffer && i === snakePositions.length - 1) {
+                    continue; 
+                }
+
                 if (newPos.distanceTo(snakePositions[i]) < 0.5) { 
                     endGame(); 
                     return; 
                 }
             }
+
             // Collision: Obstacles
             for(let i=0; i<obstacles.length; i++) { 
                 if (newPos.distanceTo(obstacles[i].position) < 0.8) { 
@@ -181,18 +195,22 @@
                 }
             }
 
-            // Collision: Food
+            // 4. Food/Growth Logic
             const eating = newPos.distanceTo(food.position) < 1.0;
             if (eating) {
                 score += 10;
                 document.getElementById('score').innerText = `SCORE: ${score}`;
                 spawnFood();
+                growthBuffer = true; // Set buffer to protect the head during the next move
+            } else {
+                growthBuffer = false; // Reset buffer if not eating
             }
 
+            // 5. Update Snake Array
             snakePositions.unshift(newPos.clone());
             if (!eating) snakePositions.pop();
 
-            // Sync Meshes
+            // 6. Sync Meshes
             while (snakeMeshes.length < snakePositions.length) {
                 const m = snakeMeshes.length === 0 ? createHead() : createSegment();
                 snakeMeshes.push(m);
@@ -227,13 +245,13 @@
             requestAnimationFrame(animate);
 
             if (!isGameOver) {
-                // Timing check
+                // Continuous movement logic using performance.now()
                 if (currentTime - lastStepTime >= MOVE_INTERVAL) {
                     performMovementStep();
                     lastStepTime = currentTime;
                 }
 
-                // Visual Camera Smoothing
+                // Visual Camera Smoothing (Lerp)
                 if (snakeMeshes.length > 0) {
                     visualHeadPos.lerp(snakeMeshes[0].position, 0.1);
                     camera.position.lerp(visualHeadPos.clone().normalize().multiplyScalar(18), 0.05);
