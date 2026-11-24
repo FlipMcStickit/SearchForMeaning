@@ -22,7 +22,7 @@
         { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
     </script>
 
-    <script type="module">
+            <script type="module">
         import * as THREE from 'three';
 
         const RADIUS = 10;
@@ -62,11 +62,12 @@
             const group = new THREE.Group();
             const body = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.6, 0.6), new THREE.MeshPhongMaterial({ color: 0x00ffaa }));
             group.add(body);
+            // The nose is positioned so its tip is at the front
             const nose = new THREE.Mesh(new THREE.ConeGeometry(0.25, 0.7, 8), new THREE.MeshPhongMaterial({ color: 0xffffff }));
             nose.rotation.x = Math.PI / 2;
-            nose.position.z = -0.5;
+            nose.position.z = -0.5; // Moves it to the front of the box
             group.add(nose);
-            // Direction Ring
+
             const ring = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.02, 8, 32), new THREE.MeshBasicMaterial({ color: 0x00ffaa, transparent: true, opacity: 0.4 }));
             ring.rotation.x = Math.PI / 2;
             group.add(ring);
@@ -113,20 +114,28 @@
 
         window.addEventListener('keydown', (e) => {
             if (isGameOver) return;
-            const pos = snakePositions[0].clone().normalize();
-            const rightVec = new THREE.Vector3().crossVectors(pos, moveDir).normalize();
-            const upVec = pos.clone();
-            let nextDir = moveDir.clone();
 
-            if (e.key === 'a' || e.key === 'ArrowLeft') nextDir.copy(new THREE.Vector3().crossVectors(upVec, rightVec).normalize());
-            else if (e.key === 'd' || e.key === 'ArrowRight') nextDir.copy(rightVec);
-            else if (e.key === 'w' || e.key === 'ArrowUp') nextDir.copy(new THREE.Vector3().crossVectors(rightVec, pos).normalize());
-            else if (e.key === 's' || e.key === 'ArrowDown') nextDir.copy(new THREE.Vector3().crossVectors(pos, rightVec).normalize());
+            const currentPos = snakePositions[0].clone().normalize(); 
+            const rightVec = new THREE.Vector3().crossVectors(currentPos, moveDir).normalize();
+            const upRelativeVec = new THREE.Vector3().crossVectors(rightVec, currentPos).normalize();
 
-            if (nextDir.dot(moveDir) < -0.8) return; // No 180 turns
-            nextDir.projectOnPlane(pos);
-            nextDir.normalize();
-            moveDir.copy(nextDir);
+            let newDir = moveDir.clone();
+
+            if (e.key === 'a' || e.key === 'ArrowLeft') {
+                newDir.copy(rightVec); 
+            } else if (e.key === 'd' || e.key === 'ArrowRight') {
+                newDir.copy(rightVec.clone().negate());
+            } else if (e.key === 'w' || e.key === 'ArrowUp') {
+                newDir.copy(upRelativeVec);
+            } else if (e.key === 's' || e.key === 'ArrowDown') {
+                newDir.copy(upRelativeVec.clone().negate());
+            }
+
+            if (newDir.dot(moveDir) < -0.5) return;
+
+            newDir.projectOnPlane(currentPos);
+            newDir.normalize();
+            moveDir.copy(newDir);
         });
 
         let lastMoveTime = 0;
@@ -135,11 +144,25 @@
             if (time - lastMoveTime < MOVE_SPEED * 1000) return;
             lastMoveTime = time;
 
-            const newPos = snakePositions[0].clone().add(moveDir.clone().multiplyScalar(STEP_DISTANCE)).normalize().multiplyScalar(RADIUS);
+            // 1. Calculate new position and FORCE it to stay on the sphere radius
+            const currentPos = snakePositions[0].clone();
+            const newPos = currentPos.clone()
+                .add(moveDir.clone().multiplyScalar(STEP_DISTANCE))
+                .normalize() 
+                .multiplyScalar(RADIUS);
 
-            // Collisions
-            for(let i=1; i<snakePositions.length; i++) if (newPos.distanceTo(snakePositions[i]) < 0.4) { endGame(); return; }
-            obstacles.forEach(o => { if (newPos.distanceTo(o.position) < 0.8) endGame(); });
+            // 2. Collision checks
+            // Check body collision (skip the very first segment to avoid self-collision at start)
+            for(let i=1; i<snakePositions.length; i++) {
+                if (newPos.distanceTo(snakePositions[i]) < 0.5) { 
+                    endGame(); 
+                    return; 
+                }
+            }
+            // Check obstacles
+            obstacles.forEach(o => { 
+                if (newPos.distanceTo(o.position) < 0.8) endGame(); 
+            });
 
             const eating = newPos.distanceTo(food.position) < 1.0;
             if (eating) {
@@ -148,11 +171,10 @@
                 spawnFood();
             }
 
-            // Update Positions
             snakePositions.unshift(newPos.clone());
             if (!eating) snakePositions.pop();
 
-            // Update Meshes
+            // 3. Update Meshes
             while (snakeMeshes.length < snakePositions.length) {
                 const m = snakeMeshes.length === 0 ? createHead() : createSegment();
                 snakeMeshes.push(m);
@@ -164,14 +186,22 @@
 
             for (let i = 0; i < snakePositions.length; i++) {
                 snakeMeshes[i].position.copy(snakePositions[i]);
-                if (i < snakePositions.length - 1) snakeMeshes[i].lookAt(snakePositions[i+1]);
-                else {
+
+                // Corrected LookAt Logic
+                if (i < snakePositions.length - 1) {
+                    snakeMeshes[i].lookAt(snakePositions[i+1]);
+                } else {
+                    // For the head, look at where it's going, but use the radial vector as "up" 
+                    // to prevent the nose from flipping inward.
                     const lookTarget = snakePositions[i].clone().add(moveDir);
+                    const upVector = snakePositions[i].clone().normalize();
                     snakeMeshes[i].lookAt(lookTarget);
+                    // Force the "Up" to be away from the planet center
+                    try {
+                        snakeMeshes[i].up.copy(upVector);
+                    } catch(e) { /* fallback if math fails */ }
                 }
             }
-            moveDir.projectOnPlane(newPos);
-            moveDir.normalize();
         }
 
         function endGame() {
