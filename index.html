@@ -78,35 +78,46 @@
         scene.add(foodMesh);
         food = { position: new THREE.Vector3(), mesh: foodMesh };
 
-                                function createHead() {
+                    function createHead() {
             const group = new THREE.Group();
 
-            // 1. THE CORE: Small, bright, and solid
+            // --- STEP 1: GENERATE A YELLOW GLOW TEXTURE ON THE FLY ---
+            const canvas = document.createElement('canvas');
+            canvas.width = 64;
+            canvas.height = 64;
+            const context = canvas.getContext('2d');
+            const gradient = context.createRadialGradient(32, 32, 0, 32, 32, 32);
+            // Center is solid Yellow, edges are completely transparent
+            gradient.addColorStop(0, 'rgba(255, 255, 0, 1)'); 
+            gradient.addColorStop(1, 'rgba(255, 255, 0, 0)');
+            context.fillStyle = gradient;
+            context.fillRect(0, 0, 64, 64);
+
+            const glowTexture = new THREE.CanvasTexture(canvas);
+
+            // --- STEP 2: THE CORE (Now Glowing Red) ---
             const coreMat = new THREE.MeshStandardMaterial({ 
-                color: 0xffffff,       // White core looks "hotter" and more intense
-                emissive: 0x00ffaa,    // Teal glow
-                emissiveIntensity: 5,  // Very high intensity
-                roughness: 0
+                color: 0xff0000,       // Pure Red
+                emissive: 0xff0000,    // Red Emissive
+                emissiveIntensity: 10  // High intensity for a "hot" core
             });
-            const core = new THREE.Mesh(new THREE.SphereGeometry(0.25, 32, 32), coreMat);
+            const core = new THREE.Mesh(new THREE.SphereGeometry(0.2, 32, 32), coreMat);
             group.add(core);
 
-            // 2. THE AURA: Large, soft, and translucent
-            // This acts as the "particle/gas" look
-            const auraMat = new THREE.MeshStandardMaterial({ 
-                color: 0x00ffaa, 
-                emissive: 0x00ffaa, 
-                emissiveIntensity: 2,
+            // --- STEP 3: THE AURA (Now Yellow) ---
+            const auraMat = new THREE.MeshBasicMaterial({
+                map: glowTexture,
                 transparent: true,
-                opacity: 0.3,          // Very faint
-                depthWrite: false,     // Crucial: prevents the aura from "clipping" the core
-                blending: THREE.AdditiveBlending // Makes it "glow" by adding color to the background
+                blending: THREE.AdditiveBlending,
+                depthWrite: false,
+                side: THREE.DoubleSide
             });
-            const aura = new THREE.Mesh(new THREE.SphereGeometry(0.5, 32, 32), auraMat);
+            const aura = new THREE.Mesh(new THREE.SphereGeometry(0.6, 32, 32), auraMat);
             group.add(aura);
 
-            // 3. THE RADIANCE: The light that hits the world
-            const glowLight = new THREE.PointLight(0x00ffaa, 30, 6); 
+            // --- STEP 4: THE LIGHT (Changed to Yellow to match aura) ---
+            // This ensures the light hitting the obstacles is yellow
+            const glowLight = new THREE.PointLight(0xffff00, 50, 8); 
             group.add(glowLight);
 
             return group;
