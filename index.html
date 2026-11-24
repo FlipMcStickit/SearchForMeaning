@@ -119,15 +119,16 @@
             glowTexture.wrapT = THREE.RepeatWrapping;
 
             // --- STEP 2: SCALE & MATERIALS ---
-            const scale = 0.75;
+                        // --- STEP 2: SCALE & MATERIALS ---
+            // Reduced scale from 0.75 to 0.4 to make the head much smaller
+            const scale = 0.4; 
 
-            // Intensity Boost: Increased opacity by 50% (e.g., 0.9 -> 1.0, 0.5 -> 0.75)
             const coreMat = new THREE.MeshBasicMaterial({ 
                 map: glowTexture,
                 transparent: true,
                 blending: THREE.AdditiveBlending,
                 side: THREE.DoubleSide,
-                opacity: 1.0 // Maxed out
+                opacity: 1.0 
             });
 
             const auraMat = new THREE.MeshBasicMaterial({
@@ -136,35 +137,35 @@
                 blending: THREE.AdditiveBlending,
                 depthWrite: false,
                 side: THREE.DoubleSide,
-                opacity: 0.75 // Increased from 0.5
+                opacity: 0.6 // Slightly lowered opacity to prevent "clutter"
             });
 
-            // --- STEP 3: THE MESHES (The "Un-Perfect" Shapes) ---
+            // --- STEP 3: THE MESHES (Smaller, tighter dimensions) ---
 
-            // Core
-            const core = new THREE.Mesh(new THREE.SphereGeometry(0.3 * scale, 32, 32), coreMat);
-            core.scale.set(1.3, 0.8, 1.3); 
+            // Core - Much tighter
+            const core = new THREE.Mesh(new THREE.SphereGeometry(0.2 * scale, 32, 32), coreMat);
+            core.scale.set(1.1, 0.7, 1.1); 
             group.add(core);
 
-            // Aura 1
-            const aura1 = new THREE.Mesh(new THREE.SphereGeometry(0.6 * scale, 32, 32), auraMat);
-            aura1.scale.set(1.6, 1.2, 1.6); 
+            // Aura 1 - Tighter
+            const aura1 = new THREE.Mesh(new THREE.SphereGeometry(0.4 * scale, 32, 32), auraMat);
+            aura1.scale.set(1.3, 1.0, 1.3); 
             group.add(aura1);
 
-            // Aura 2
-            const aura2 = new THREE.Mesh(new THREE.SphereGeometry(0.9 * scale, 32, 32), auraMat);
+            // Aura 2 - Tighter
+            const aura2 = new THREE.Mesh(new THREE.SphereGeometry(0.6 * scale, 32, 32), auraMat);
             aura2.rotation.set(Math.PI / 3, Math.PI / 4, 0);
-            aura2.scale.set(1.3, 1.6, 1.2); 
+            aura2.scale.set(1.1, 1.3, 1.1); 
             group.add(aura2);
 
-            // Aura 3
-            const aura3 = new THREE.Mesh(new THREE.SphereGeometry(1.2 * scale, 32, 32), auraMat);
+            // Aura 3 - Tighter
+            const aura3 = new THREE.Mesh(new THREE.SphereGeometry(0.8 * scale, 32, 32), auraMat);
             aura3.rotation.set(0, Math.PI / 2, Math.PI / 3);
             group.add(aura3);
 
             // --- STEP 4: THE LIGHT ---
-            // Intensity Boost: Increased light from 70 to 105 (50% increase)
-            const glowLight = new THREE.PointLight(0xffaa00, 105, 15); 
+            // Reduced light range from 15 to 8 so it doesn't blind the player
+            const glowLight = new THREE.PointLight(0xffaa00, 80, 8); 
             group.add(glowLight);
 
             group.userData.isPlasma = true;
@@ -418,11 +419,24 @@
                         if (snakeMeshes[0].userData.isPlasma) {
                             const head = snakeMeshes[0];
                             const layers = head.userData.layers;
-                            const time = currentTime * 0.001; 
+                            const time = currentTime * 0.002; 
 
-                            layers[0].rotation.y = time * 0.5;
-                            layers[1].rotation.x = time * 0.7;
-                            layers[2].rotation.z = time * 0.3;
+                            layers.forEach((layer, i) => {
+                                layer.rotation.x = time * (1.2 + i * 0.5);
+                                layer.rotation.y = time * (0.8 + i * 0.3);
+                                layer.rotation.z = time * (1.5 + i * 0.2);
+
+                                // Reduced pulse from 0.15 to 0.05 so it's a subtle boil, not a big swell
+                                const pulse = 1 + Math.sin(time * 3 + i) * 0.05;
+
+                                const baseScales = [
+                                    new THREE.Vector3(1.1, 0.7, 1.1), // Core
+                                    new THREE.Vector3(1.3, 1.0, 1.3), // Aura 1
+                                    new THREE.Vector3(1.1, 1.3, 1.1), // Aura 2
+                                    new THREE.Vector3(1.0, 1.0, 1.0)  // Aura 3
+                                ];
+                                layer.scale.copy(baseScales[i]).multiplyScalar(pulse);
+                            });
                         }
                         // ---------------------------------
 
