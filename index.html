@@ -10,7 +10,7 @@
         button { background: #00ffaa; border: none; padding: 10px 20px; font-weight: bold; cursor: pointer; margin-top: 20px; }
     </style>
 </head>
-<body>
+<body lid="game-container">
     <div id="ui"><h1 id="score">SCORE: 0</h1></div>
     <div id="game-over">
         <h1 style="color: #ff4444;">VOID CONSUMED YOU</h1>
@@ -22,7 +22,7 @@
         { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
     </script>
 
-            <script type="module">
+    <script type="module">
         import * as THREE from 'three';
 
         const RADIUS = 10;
@@ -60,12 +60,16 @@
 
         function createHead() {
             const group = new THREE.Group();
+
+            // Main body cube
             const body = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.6, 0.6), new THREE.MeshPhongMaterial({ color: 0x00ffaa }));
             group.add(body);
-            // The nose is positioned so its tip is at the front
-            const nose = new THREE.Mesh(new THREE.ConeGeometry(0.25, 0.7, 8), new THREE.MeshPhongMaterial({ color: 0xffffff }));
-            nose.rotation.x = Math.PI / 2;
-            nose.position.z = -0.5; // Moves it to the front of the box
+
+            // Nose: Corrected orientation. 
+            // ConeGeometry tip is at the top. We rotate it so it points along Z.
+            const nose = new THREE.Mesh(new THREE.ConeGeometry(0.25, 0.6, 8), new THREE.MeshPhongMaterial({ color: 0xffffff }));
+            nose.rotation.x = Math.PI / 2; 
+            nose.position.z = -0.5; // Move to front of cube
             group.add(nose);
 
             const ring = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.02, 8, 32), new THREE.MeshBasicMaterial({ color: 0x00ffaa, transparent: true, opacity: 0.4 }));
@@ -101,11 +105,18 @@
             snakeMeshes.forEach(m => scene.remove(m));
             obstacles.forEach(o => scene.remove(o));
             if(food.mesh) scene.remove(food.mesh);
+
             snakePositions = [new THREE.Vector3(RADIUS, 0, 0)];
             snakeMeshes = [createHead()];
             scene.add(snakeMeshes[0]);
-            obstacles = []; score = 0; isGameOver = false;
+
+            obstacles = []; 
+            score = 0; 
+            isGameOver = false;
+
+            // Start moving along a clear path
             moveDir.set(0, 1, 0);
+
             document.getElementById('score').innerText = "SCORE: 0";
             document.getElementById('game-over').style.display = 'none';
             for(let i=0; i<30; i++) spawnObstacle();
@@ -116,6 +127,7 @@
             if (isGameOver) return;
 
             const currentPos = snakePositions[0].clone().normalize(); 
+            // Find vectors relative to current position on sphere
             const rightVec = new THREE.Vector3().crossVectors(currentPos, moveDir).normalize();
             const upRelativeVec = new THREE.Vector3().crossVectors(rightVec, currentPos).normalize();
 
@@ -131,8 +143,10 @@
                 newDir.copy(upRelativeVec.clone().negate());
             }
 
+            // Prevent 180-degree turns
             if (newDir.dot(moveDir) < -0.5) return;
 
+            // Ensure the new direction is tangent to the sphere
             newDir.projectOnPlane(currentPos);
             newDir.normalize();
             moveDir.copy(newDir);
@@ -144,22 +158,26 @@
             if (time - lastMoveTime < MOVE_SPEED * 1000) return;
             lastMoveTime = time;
 
-            // 1. Calculate new position and FORCE it to stay on the sphere radius
             const currentPos = snakePositions[0].clone();
+
+            // Calculate new position
             const newPos = currentPos.clone()
                 .add(moveDir.clone().multiplyScalar(STEP_DISTANCE))
                 .normalize() 
                 .multiplyScalar(RADIUS);
 
-            // 2. Collision checks
-            // Check body collision (skip the very first segment to avoid self-collision at start)
+            // BUG FIX: "The Drift" - Constantly re-normalize moveDir 
+            // to ensure it stays tangent to the sphere's surface.
+            moveDir.projectOnPlane(newPos.clone().normalize());
+            moveDir.normalize();
+
+            // Collision checks
             for(let i=1; i<snakePositions.length; i++) {
                 if (newPos.distanceTo(snakePositions[i]) < 0.5) { 
                     endGame(); 
                     return; 
                 }
             }
-            // Check obstacles
             obstacles.forEach(o => { 
                 if (newPos.distanceTo(o.position) < 0.8) endGame(); 
             });
@@ -174,7 +192,7 @@
             snakePositions.unshift(newPos.clone());
             if (!eating) snakePositions.pop();
 
-            // 3. Update Meshes
+            // Update Meshes
             while (snakeMeshes.length < snakePositions.length) {
                 const m = snakeMeshes.length === 0 ? createHead() : createSegment();
                 snakeMeshes.push(m);
@@ -187,19 +205,20 @@
             for (let i = 0; i < snakePositions.length; i++) {
                 snakeMeshes[i].position.copy(snakePositions[i]);
 
-                // Corrected LookAt Logic
+                // STABLE ROTATION LOGIC
+                // We use the position vector as the "Up" vector so the snake 
+                // always stays "flat" against the sphere's surface.
+                const upVector = snakePositions[i].clone().normalize();
+
                 if (i < snakePositions.length - 1) {
+                    // Body segments look at the segment in front of them
                     snakeMeshes[i].lookAt(snakePositions[i+1]);
+                    snakeMeshes[i].up.copy(upVector);
                 } else {
-                    // For the head, look at where it's going, but use the radial vector as "up" 
-                    // to prevent the nose from flipping inward.
+                    // Head looks at its direction of travel
                     const lookTarget = snakePositions[i].clone().add(moveDir);
-                    const upVector = snakePositions[i].clone().normalize();
                     snakeMeshes[i].lookAt(lookTarget);
-                    // Force the "Up" to be away from the planet center
-                    try {
-                        snakeMeshes[i].up.copy(upVector);
-                    } catch(e) { /* fallback if math fails */ }
+                    snakeMeshes[i].up.copy(upVector);
                 }
             }
         }
