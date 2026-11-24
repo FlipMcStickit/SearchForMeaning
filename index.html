@@ -8,11 +8,13 @@
         #ui { position: absolute; top: 20px; width: 100%; text-align: center; color: #00ffaa; pointer-events: none; text-shadow: 0 0 10px #00ffaa; }
         #game-over { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; text-align: center; display: none; background: rgba(0,0,0,0.9); padding: 40px; border: 2px solid #ff4444; border-radius: 15px; z-index: 10; }
         button { background: #00ffaa; border: none; padding: 10px 20px; font-weight: bold; cursor: pointer; margin-top: 20px; }
+		#pause-ui { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 3em; display: none; pointer-events: none; }
     </style>
 </head>
 <body>
     <div id="ui"><h1 id="score">SCORE: 0</h1></div>
-    <div id="game-over">
+    <div id="pause-ui">PAUSED</div>
+	<div id="game-over">
         <h1 style="color: #ff4444;">VOID CONSUMED YOU</h1>
         <p id="final-score"></p>
         <button onclick="location.reload()">RESTART</button>
@@ -33,6 +35,7 @@
         // --- STATE ---
         let score = 0;
         let isGameOver = false;
+		let isPaused = false;
         let snakePositions = []; 
         let snakeMeshes = [];    
         let moveDir = new THREE.Vector3(0, 1, 0);
@@ -191,8 +194,14 @@
             spawnFood();
         }
 
-        window.addEventListener('keydown', (e) => {
-            if (isGameOver) return;
+         window.addEventListener('keydown', (e) => {
+            // 1. Handle Pausing first
+            if (e.code === 'Space') {
+                isPaused = !isPaused; // This flips true to false, or false to true
+                return; // Exit the function so pressing space doesn't trigger a move
+            }
+
+            if (isGameOver || isPaused) return;
 
             const currentPos = snakePositions[0].clone().normalize(); 
             const rightVec = new THREE.Vector3().crossVectors(currentPos, moveDir).normalize();
@@ -306,35 +315,39 @@
             document.getElementById('final-score').innerText = `FINAL SCORE: ${score}`;
         }
 
-        function animate(currentTime) {
+                        function animate(currentTime) {
             requestAnimationFrame(animate);
+
             if (!isGameOver) {
-                if (currentTime - lastStepTime >= MOVE_INTERVAL) {
-                    performMovementStep();
-                    lastStepTime = currentTime;
-                }
-                                                if (snakeMeshes.length > 0) {
-                    visualHeadPos.lerp(snakeMeshes[0].position, 0.1);
-                    camera.position.lerp(visualHeadPos.clone().normalize().multiplyScalar(18), 0.05);
+                if (!isPaused) {
+                    // This part only runs when the game is ACTIVE
+                    document.getElementById('pause-ui').style.display = 'none';
 
-                    // --- SMOOTHED/DELAYED CAMERA ORIENTATION ---
-                    const headNormal = visualHeadPos.clone().normalize();
+                    if (currentTime - lastStepTime >= MOVE_INTERVAL) {
+                        performMovementStep();
+                        lastStepTime = currentTime;
+                    }
 
-                    // Target direction: where the snake is currently heading
-                    cameraUpTarget.copy(moveDir).projectOnPlane(headNormal).normalize();
+                    if (snakeMeshes.length > 0) {
+                        visualHeadPos.lerp(snakeMeshes[0].position, 0.1);
+                        camera.position.lerp(visualHeadPos.clone().normalize().multiplyScalar(18), 0.05);
 
-                    // THE DELAY: 
-                    // We use a very small number (0.02) so the camera "drifts" 
-                    // towards the new heading rather than snapping to it.
-                    smoothedUp.lerp(cameraUpTarget, 0.02); 
+                        const headNormal = visualHeadPos.clone().normalize();
+                        cameraUpTarget.copy(moveDir).projectOnPlane(headNormal).normalize();
+                        smoothedUp.lerp(cameraUpTarget, 0.02); 
+                        camera.up.copy(smoothedUp);
+                        camera.lookAt(visualHeadPos);
 
-                    camera.up.copy(smoothedUp);
-                    camera.lookAt(visualHeadPos);
-                    // --------------------------------------------
-
-                    light.position.copy(visualHeadPos.clone().multiplyScalar(2));
+                        light.position.copy(visualHeadPos.clone().multiplyScalar(2));
+                    }
+                } else {
+                    // This part only runs when the game is PAUSED
+                    document.getElementById('pause-ui').style.display = 'block';
                 }
             }
+
+            // The renderer stays outside all the IF statements so the 
+            // graphics keep drawing even when paused or game is over.
             renderer.render(scene, camera);
         }
 
