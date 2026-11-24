@@ -173,23 +173,41 @@
                 ctx.font = "16px Georgia";
                 ctx.fillText("Press Space to seek meaning again", canvas.width / 2, canvas.height / 2 + 40);
             } else {
-                // 1. Draw Obstacles
+                // Projection Function: Converts Flat Space -> Spherical Illusion
+                const project = (x, y) => {
+                    let normalizedX = (x - canvas.width / 2) / (canvas.width / 2);
+                    // We use Math.sin to create the curve
+                    let curvedX = Math.sin(normalizedX * Math.PI / 2) * (canvas.width / 2);
+                    return { 
+                        x: curvedX + canvas.width / 2, 
+                        y: y 
+                    };
+                };
+
+                // 1. Draw Obstacles (Projected)
                 ctx.fillStyle = "#333"; 
                 obstacles.forEach(obs => {
-                    ctx.fillRect(obs.x, obs.y, sparkSize, sparkSize);
+                    const p = project(obs.x, obs.y);
+                    // Calculate scale: objects get thinner as they reach the edges
+                    const scale = Math.cos(((obs.x - canvas.width/2) / (canvas.width/2)) * Math.PI/2);
+                    ctx.fillRect(p.x, p.y, sparkSize * scale, sparkSize);
+
+                    // Optional: Add a tiny stroke to the monoliths to help the eye see the curve
                     ctx.strokeStyle = "#444";
-                    ctx.strokeRect(obs.x, obs.y, sparkSize, sparkSize);
+                    ctx.strokeRect(p.x, p.y, sparkSize * scale, sparkSize);
                 });
 
-                // 2. Draw Food
+                // 2. Draw Food (Projected)
+                const fp = project(food.x, food.y);
+                const foodScale = Math.cos(((food.x - canvas.width/2) / (canvas.width/2)) * Math.PI/2);
                 ctx.fillStyle = "red";
-                ctx.fillRect(food.x, food.y, sparkSize, sparkSize);
+                // FIXED: Using fp.x and fp.y instead of food.x and food.y
+                ctx.fillRect(fp.x, fp.y, sparkSize * foodScale, sparkSize);
 
                 // 3. The Pulse (Movement & Input Consumption)
                 let currentTime = Date.now();
                 if (currentTime - lastUpdateTime >= moveInterval) {
 
-                    // CONSUME INPUT: If there's something in the queue, use it
                     if (inputQueue.length > 0) {
                         direction = inputQueue.shift();
                     }
@@ -207,14 +225,13 @@
 
                         const newHead = { x: newX, y: newY };
 
-                        // Collision Checks
+                        // Collision Checks (Done in FLAT space)
                         const hitObstacle = obstacles.some(obs => obs.x === newHead.x && obs.y === newHead.y);
                         const hitSelf = snake.some(segment => segment.x === newHead.x && segment.y === newHead.y);
 
                         if (hitObstacle || hitSelf) {
                             isGameOver = true;
                         } else {
-                            // Check Food Collision
                             if (newHead.x === food.x && newHead.y === food.y) {
                                 snake.unshift(newHead);
                                 do {
@@ -230,10 +247,12 @@
                     lastUpdateTime = currentTime;
                 }
 
-                // 4. Draw the Snake
+                // 4. Draw the Snake (Projected)
                 snake.forEach(segment => {
+                    const p = project(segment.x, segment.y);
+                    const scale = Math.cos(((segment.x - canvas.width/2) / (canvas.width/2)) * Math.PI/2);
                     ctx.fillStyle = "#00ffaa";
-                    ctx.fillRect(segment.x, segment.y, sparkSize, sparkSize);
+                    ctx.fillRect(p.x, p.y, sparkSize * scale, sparkSize);
                 });
             }
 
