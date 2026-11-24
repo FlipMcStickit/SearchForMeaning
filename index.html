@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Snake: Spherical Odyssey - V24 STABLE</title>
+    <title>Snake: Spherical Odyssey - V25 FULL STABLE</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; }
         #ui { position: absolute; top: 20px; width: 100%; text-align: center; color: #00ffaa; pointer-events: none; text-shadow: 0 0 10px #00ffaa; }
@@ -41,7 +41,6 @@
         let food = { position: new THREE.Vector3(), mesh: null };
         let obstacles = [];
         let visualHeadPos = new THREE.Vector3(RADIUS, 0, 0);
-        let tailIgnoreCount = 0; 
 
         // --- THREE.JS SETUP ---
         const scene = new THREE.Scene();
@@ -64,6 +63,13 @@
         const planet = new THREE.Mesh(new THREE.SphereGeometry(RADIUS, 48, 48), new THREE.MeshPhongMaterial({ color: 0x111122, wireframe: true }));
         scene.add(planet);
 
+        // --- INITIALIZE FOOD MESH ---
+        const foodGeo = new THREE.SphereGeometry(0.5, 16, 16);
+        const foodMat = new THREE.MeshPhongMaterial({ color: 0xff00ff, emissive: 0xff00ff, emissiveIntensity: 0.5 });
+        const foodMesh = new THREE.Mesh(foodGeo, foodMat);
+        scene.add(foodMesh);
+        food = { position: new THREE.Vector3(), mesh: foodMesh };
+
         function createHead() {
             const group = new THREE.Group();
             const body = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.6, 0.6), new THREE.MeshPhongMaterial({ color: 0x00ffaa }));
@@ -80,13 +86,46 @@
         }
 
         function spawnFood() {
-            if(food.mesh) scene.remove(food.mesh);
-            food.mesh = new THREE.Mesh(new THREE.SphereGeometry(0.4, 16, 16), new THREE.MeshPhongMaterial({ color: 0xff4444, emissive: 0xff0000 }));
-            const phi = Math.random() * Math.PI * 2;
-            const theta = Math.acos((Math.random() * 2) - 1);
-            food.position.set(RADIUS * Math.sin(theta) * Math.cos(phi), RADIUS * Math.sin(theta) * Math.sin(phi), RADIUS * Math.cos(theta));
-            food.mesh.position.copy(food.position);
-            scene.add(food.mesh);
+            let validSpawn = false;
+            let attempts = 0;
+            const MAX_ATTEMPTS = 100;
+            let newFoodPos = new THREE.Vector3();
+
+            while (!validSpawn && attempts < MAX_ATTEMPTS) {
+                attempts++;
+                // Uniform distribution on sphere
+                const phi = Math.acos(2 * Math.random() - 1); 
+                const theta = Math.random() * Math.PI * 2;
+
+                newFoodPos.set(
+                    RADIUS * Math.sin(phi) * Math.cos(theta),
+                    RADIUS * Math.sin(phi) * Math.sin(theta),
+                    RADIUS * Math.cos(phi)
+                );
+
+                let collisionWithObstacle = false;
+                for (let i = 0; i < obstacles.length; i++) {
+                    if (newFoodPos.distanceTo(obstacles[i].position) < 1.5) {
+                        collisionWithObstacle = true;
+                        break;
+                    }
+                }
+
+                let collisionWithSnake = false;
+                for (let i = 0; i < snakePositions.length; i++) {
+                    if (newFoodPos.distanceTo(snakePositions[i]) < 1.5) {
+                        collisionWithSnake = true;
+                        break;
+                    }
+                }
+
+                if (!collisionWithObstacle && !collisionWithSnake) {
+                    validSpawn = true;
+                }
+            }
+
+            food.position.copy(newFoodPos);
+            food.mesh.position.copy(newFoodPos);
         }
 
         function spawnObstacle() {
@@ -99,24 +138,27 @@
         }
 
         function initGame() {
+            // Reset Meshes
             snakeMeshes.forEach(m => scene.remove(m));
+            snakeMeshes = [];
             obstacles.forEach(o => scene.remove(o));
-            if(food.mesh) scene.remove(food.mesh);
+            obstacles = [];
 
+            // Reset State
             snakePositions = [new THREE.Vector3(RADIUS, 0, 0)];
-            snakeMeshes = [createHead()];
-            scene.add(snakeMeshes[0]);
+            const head = createHead();
+            snakeMeshes = [head];
+            scene.add(head);
 
-            obstacles = []; 
             score = 0; 
             isGameOver = false;
-            tailIgnoreCount = 0;
             moveDir.set(0, 1, 0);
             inputQueue = []; 
             lastStepTime = performance.now();
 
             document.getElementById('score').innerText = "SCORE: 0";
             document.getElementById('game-over').style.display = 'none';
+
             for(let i=0; i<30; i++) spawnObstacle();
             spawnFood();
         }
@@ -144,110 +186,91 @@
             if(inputQueue.length > 3) inputQueue.shift();
         });
 
-        let lastTailPosition = new THREE.Vector3();
-
-function performMovementStep() {
-    if (inputQueue.length > 0) {
-        moveDir.copy(inputQueue.shift());
-    }
-
-    const currentPos = snakePositions[0].clone();
-
-    // 1. MATH: Move along tangent (Robust Spherical Projection)
-    // We treat moveDir as a direction on the tangent plane
-    const tangentDir = moveDir.clone().normalize();
-    const newPos = currentPos.clone()
-        .add(tangentDir.multiplyScalar(STEP_DISTANCE))
-        .normalize() // Project back to unit sphere
-        .multiplyScalar(RADIUS); // Scale to planet surface
-
-    // Update moveDir for the next frame based on the actual movement taken
-    moveDir.copy(newPos.clone().sub(currentPos).normalize());
-
-    // 2. COLLISION LOGIC: Path-Based (Sweep) Detection
-    let collisionDetected = false;
-    const collisionRadius = 0.4; // Slightly smaller than STEP_DISTANCE to allow tight turns
-
-    // We check the line segment [currentPos -> newPos] against every body segment
-    for (let i = 1; i < snakePositions.length; i++) {
-        const bodySegmentPos = snakePositions[i];
-
-        // Skip the segment immediately behind the head to prevent self-collision 
-        // during the very first step of a turn.
-        if (i === 1) continue; 
-
-        // Find the closest point on the line segment (currentPos -> newPos) 
-        // to the bodySegmentPos.
-        const closestPointOnPath = closestPointOnSegment(currentPos, newPos, bodySegmentPos);
-
-        // If the distance from the body segment to our movement path is too small, we hit ourselves.
-        if (closestPointOnPath.distanceTo(bodySegmentPos) < collisionRadius) {
-            collisionDetected = true;
-            break;
+        function closestPointOnSegment(A, B, P) {
+            const AB = new THREE.Vector3().subVectors(B, A);
+            const AP = new THREE.Vector3().subVectors(P, A);
+            let t = AP.dot(AB) / AB.dot(AB);
+            t = Math.max(0, Math.min(1, t)); 
+            return new THREE.Vector3().addVectors(A, AB.multiplyScalar(t));
         }
-    }
 
-    // 3. OBSTACLE CHECK
-    if (!collisionDetected) {
-        for (let i = 0; i < obstacles.length; i++) {
-            if (newPos.distanceTo(obstacles[i].position) < 0.8) {
+        function performMovementStep() {
+            if (inputQueue.length > 0) {
+                moveDir.copy(inputQueue.shift());
+            }
+
+            const currentPos = snakePositions[0].clone();
+            const tangentDir = moveDir.clone().normalize();
+            const newPos = currentPos.clone()
+                .add(tangentDir.multiplyScalar(STEP_DISTANCE))
+                .normalize()
+                .multiplyScalar(RADIUS);
+
+            moveDir.copy(newPos.clone().sub(currentPos).normalize());
+
+            // 1. SWEEP COLLISION (Self)
+            let collisionDetected = false;
+            const collisionRadius = 0.4;
+
+            for (let i = 1; i < snakePositions.length; i++) {
+                const bodySegmentPos = snakePositions[i];
+                if (i === 1) continue; 
+
+                const closestPointOnPath = closestPointOnSegment(currentPos, newPos, bodySegmentPos);
+                if (closestPointOnPath.distanceTo(bodySegmentPos) < collisionRadius) {
+                    collisionDetected = true;
+                    break;
+                }
+            }
+
+            // 2. OBSTACLE COLLISION
+            if (!collisionDetected) {
+                for (let i = 0; i < obstacles.length; i++) {
+                    if (newPos.distanceTo(obstacles[i].position) < 0.8) {
+                        collisionDetected = true;
+                        break;
+                    }
+                }
+            }
+
+            if (collisionDetected) {
                 endGame();
                 return;
             }
+
+            // 3. EATING & POSITION UPDATE
+            const eating = newPos.distanceTo(food.position) < 1.0;
+            if (eating) {
+                score += 10;
+                document.getElementById('score').innerText = `SCORE: ${score}`;
+                spawnFood();
+            } else {
+                snakePositions.pop();
+            }
+            snakePositions.unshift(newPos.clone());
+
+            // 4. MESH SYNC
+            while (snakeMeshes.length < snakePositions.length) {
+                const m = snakeMeshes.length === 0 ? createHead() : createSegment();
+                snakeMeshes.push(m);
+                scene.add(m);
+            }
+            while (snakeMeshes.length > snakePositions.length) {
+                scene.remove(snakeMeshes.pop());
+            }
+
+            for (let i = 0; i < snakePositions.length; i++) {
+                snakeMeshes[i].position.copy(snakePositions[i]);
+                const upVector = snakePositions[i].clone().normalize();
+                if (i < snakePositions.length - 1) {
+                    snakeMeshes[i].lookAt(snakePositions[i+1]);
+                } else {
+                    const lookTarget = snakePositions[i].clone().add(moveDir);
+                    snakeMeshes[i].lookAt(lookTarget);
+                }
+                snakeMeshes[i].up.copy(upVector);
+            }
         }
-    }
-
-    if (collisionDetected) {
-        endGame();
-        return;
-    }
-
-    // 4. GROWTH & POSITION UPDATING
-    const eating = newPos.distanceTo(food.position) < 1.0;
-    if (eating) {
-        score += 10;
-        document.getElementById('score').innerText = `SCORE: ${score}`;
-        spawnFood();
-    } else {
-        snakePositions.pop();
-    }
-    snakePositions.unshift(newPos.clone());
-
-    // 5. MESH SYNCING
-    while (snakeMeshes.length < snakePositions.length) {
-        const m = snakeMeshes.length === 0 ? createHead() : createSegment();
-        snakeMeshes.push(m);
-        scene.add(m);
-    }
-    while (snakeMeshes.length > snakePositions.length) {
-        scene.remove(snakeMeshes.pop());
-    }
-
-    for (let i = 0; i < snakePositions.length; i++) {
-        snakeMeshes[i].position.copy(snakePositions[i]);
-        const upVector = snakePositions[i].clone().normalize();
-        if (i < snakePositions.length - 1) {
-            // Look at the next segment
-            snakeMeshes[i].lookAt(snakePositions[i+1]);
-        } else {
-            // Look ahead
-            const lookTarget = snakePositions[i].clone().add(moveDir);
-            snakeMeshes[i].lookAt(lookTarget);
-        }
-        snakeMeshes[i].up.copy(upVector);
-    }
-}
-
-/**
- * Helper: Finds the point on segment [A, B] closest to point P
- */
-function closestPointOnSegment(A, B, P) {
-    const AB = new THREE.Vector3().subVectors(B, A);
-    const AP = new THREE.Vector3().subVectors(P, A);
-    let t = AP.dot(AB) / AB.dot(AB);
-    t = Math.max(0, Math.min(1, t)); // Clamp to segment bounds
-    return new THREE.Vector3().addVectors(A, AB.multiplyScalar(t));
-}
 
         function endGame() {
             isGameOver = true;
