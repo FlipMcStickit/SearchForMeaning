@@ -37,7 +37,9 @@
         let isGameOver = false;
 		let isPaused = false;
         let snakePositions = []; 
-        let snakeMeshes = [];    
+        let snakeMeshes = [];
+		let visualPositions = []; // Stores the smoothed positions for rendering
+        let targetPositions = []; // Stores the logical positions for collision/logic
         let moveDir = new THREE.Vector3(0, 1, 0);
         let inputQueue = []; 
         let lastStepTime = 0;
@@ -177,6 +179,8 @@
 
             // Reset State
             snakePositions = [new THREE.Vector3(RADIUS, 0, 0)];
+			visualPositions = [new THREE.Vector3(RADIUS, 0, 0)];
+            targetPositions = [new THREE.Vector3(RADIUS, 0, 0)];
             const head = createHead();
             snakeMeshes = [head];
             scene.add(head);
@@ -275,34 +279,39 @@
                 return;
             }
 
-            // 3. EATING & POSITION UPDATE
+                        // 3. EATING & POSITION UPDATE
             const eating = newPos.distanceTo(food.position) < 1.0;
             if (eating) {
                 score += 10;
                 document.getElementById('score').innerText = `SCORE: ${score}`;
                 spawnFood();
             } else {
-                snakePositions.pop();
+                targetPositions.pop();
+                visualPositions.pop(); // Keep visual array in sync with logic
             }
-            snakePositions.unshift(newPos.clone());
+            targetPositions.unshift(newPos.clone());
+            visualPositions.unshift(newPos.clone()); // Start visual at the new position
 
-            // 4. MESH SYNC
-            while (snakeMeshes.length < snakePositions.length) {
+            // 4. MESH SYNC (Managing the number of meshes)
+            while (snakeMeshes.length < targetPositions.length) {
                 const m = snakeMeshes.length === 0 ? createHead() : createSegment();
                 snakeMeshes.push(m);
                 scene.add(m);
             }
-            while (snakeMeshes.length > snakePositions.length) {
+            while (snakeMeshes.length > targetPositions.length) {
                 scene.remove(snakeMeshes.pop());
+                visualPositions.pop();
+                targetPositions.pop();
             }
 
-            for (let i = 0; i < snakePositions.length; i++) {
-                snakeMeshes[i].position.copy(snakePositions[i]);
-                const upVector = snakePositions[i].clone().normalize();
-                if (i < snakePositions.length - 1) {
-                    snakeMeshes[i].lookAt(snakePositions[i+1]);
+            // Note: We do NOT update mesh.position here anymore. 
+            // We do it in the animate() loop for smoothness.
+            for (let i = 0; i < snakeMeshes.length; i++) {
+                const upVector = targetPositions[i].clone().normalize();
+                if (i < targetPositions.length - 1) {
+                    snakeMeshes[i].lookAt(targetPositions[i+1]);
                 } else {
-                    const lookTarget = snakePositions[i].clone().add(moveDir);
+                    const lookTarget = targetPositions[i].clone().add(moveDir);
                     snakeMeshes[i].lookAt(lookTarget);
                 }
                 snakeMeshes[i].up.copy(upVector);
@@ -328,8 +337,16 @@
                         lastStepTime = currentTime;
                     }
 
-                    if (snakeMeshes.length > 0) {
-                        visualHeadPos.lerp(snakeMeshes[0].position, 0.1);
+                                        if (snakeMeshes.length > 0) {
+                        // 1. Smoothly move the logical positions to the visual positions
+                        for (let i = 0; i < snakeMeshes.length; i++) {
+                            // LERP: visual moves 20% of the way to target every frame
+                            visualPositions[i].lerp(targetPositions[i], 0.2);
+                            snakeMeshes[i].position.copy(visualPositions[i]);
+                        }
+
+                        // 2. Camera follows the VISUAL head (the first visual position)
+                        visualHeadPos.copy(visualPositions[0]); 
                         camera.position.lerp(visualHeadPos.clone().normalize().multiplyScalar(18), 0.05);
 
                         const headNormal = visualHeadPos.clone().normalize();
