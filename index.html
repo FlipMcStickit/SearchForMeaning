@@ -231,13 +231,22 @@
             const geometry = new THREE.IcosahedronGeometry(0.6, 0);
             const positionAttribute = geometry.getAttribute('position');
             const vertex = new THREE.Vector3();
+
+            // Apply per-vertex scaling to create the "cracked/jagged" look
             for (let i = 0; i < positionAttribute.count; i++) {
                 vertex.fromBufferAttribute(positionAttribute, i);
-                const factor = 0.3 + Math.random() * 0.4; 
+                // Randomly shrink each vertex towards the center to create cracks
+                const factor = 0.4 + Math.random() * 0.5; 
                 vertex.multiplyScalar(factor);
                 positionAttribute.setXYZ(i, vertex.x, vertex.y, vertex.z);
             }
+
+            // IMPORTANT: Tell Three.js the positions have changed so it updates the GPU
+            positionAttribute.needsUpdate = true;
+
+            // Recalculate how light hits the new jagged surface
             geometry.computeVertexNormals();
+
             const greenShades = [0x00ff88, 0x22aa44, 0x00cc66, 0xadffaf, 0x004422];
             const randomColor = greenShades[Math.floor(Math.random() * greenShades.length)];
             const material = new THREE.MeshPhongMaterial({ color: randomColor, flatShading: true, shininess: 100 });
