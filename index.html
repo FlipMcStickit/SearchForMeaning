@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Snake: Spherical Odyssey - Stable Version</title>
+    <title>Snake: Spherical Odyssey - Re-Projected Stable Version</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; }
         #ui { position: absolute; top: 20px; width: 100%; text-align: center; color: #00ffaa; pointer-events: none; text-shadow: 0 0 10px #00ffaa; }
@@ -25,6 +25,12 @@
     <script type="module">
         import * as THREE from 'three';
 
+        /**
+         * MATH CONSTANTS
+         * RADIUS: Sphere size.
+         * STEP_DISTANCE: Arc length moved per update.
+         * MOVE_SPEED: Frequency of updates.
+         */
         const RADIUS = 10;
         const STEP_DISTANCE = 0.4;
         const MOVE_SPEED = 0.15;
@@ -34,7 +40,7 @@
         let snakePositions = []; 
         let snakeMeshes = [];    
 
-        // moveDir is now treated as a direction vector tangent to the sphere
+        // moveDir: The unit tangent vector representing current velocity direction.
         let moveDir = new THREE.Vector3(0, 1, 0);
         let nextMoveDir = new THREE.Vector3(0, 1, 0);
 
@@ -122,7 +128,9 @@
             if (isGameOver) return;
 
             const currentPos = snakePositions[0].clone().normalize(); 
-            // Calculate local coordinate system based on current movement
+
+            // NAVIGATION LOGIC:
+            // Create a local coordinate system (Tangent Space) at the head's location.
             const rightVec = new THREE.Vector3().crossVectors(currentPos, moveDir).normalize();
             const upRelativeVec = new THREE.Vector3().crossVectors(rightVec, currentPos).normalize();
 
@@ -138,10 +146,9 @@
                 requestedDir.copy(upRelativeVec.clone().negate());
             }
 
-            // Prevent 180-degree turns
             if (requestedDir.dot(moveDir) < -0.5) return;
 
-            // Project requested direction onto the tangent plane of the sphere
+            // Ensure input is tangent to the sphere surface
             requestedDir.projectOnPlane(currentPos);
             requestedDir.normalize();
             nextMoveDir.copy(requestedDir);
@@ -157,22 +164,27 @@
             const currentPos = snakePositions[0].clone();
             const currentNormal = currentPos.clone().normalize();
 
-            // 1. FIND ROTATION AXIS
-            // The axis of rotation is perpendicular to both the normal and the direction of travel
+            // --- STEP 1: ROTATION AXIS ---
+            // Rotation axis is perpendicular to the surface normal and the direction of travel.
             const rotationAxis = new THREE.Vector3().crossVectors(currentNormal, moveDir).normalize();
 
-            // 2. MOVE THE POSITION
-            // Rotate the current position around the rotation axis by the angular step
+            // --- STEP 2: POSITION UPDATE ---
+            // Rotate position around the axis to move along the arc.
             const angle = STEP_DISTANCE / RADIUS;
             const q = new THREE.Quaternion().setFromAxisAngle(rotationAxis, angle);
             const newPos = currentPos.clone().applyQuaternion(q);
-            newPos.normalize().multiplyScalar(RADIUS); // Ensure it stays exactly on surface
+            newPos.normalize().multiplyScalar(RADIUS); // HARD CONSTRAINT: Keep on surface.
 
-            // 3. ROTATE THE DIRECTION VECTOR (The Critical Fix)
-            // We must rotate the direction vector itself so it stays tangent to the sphere
-            // We rotate moveDir around the same rotationAxis by the same angle
+            // --- STEP 3: DIRECTION UPDATE (THE CRITICAL FIX) ---
+            // 3a: Rotate the direction vector using the same quaternion.
             moveDir.applyQuaternion(q);
-            moveDir.normalize();
+
+            // 3b: VECTOR RE-PROJECTION (GRAM-SCHMIDT)
+            // This is the key to preventing "Jittery Stop"/Degeneracy.
+            // We explicitly re-orthogonalize moveDir against the new surface normal.
+            const newNormal = newPos.clone().normalize();
+            moveDir.projectOnPlane(newNormal); 
+            moveDir.normalize(); // Reset to unit length on the tangent plane.
 
             // Collision Check
             for(let i=1; i<snakePositions.length; i++) {
@@ -202,7 +214,8 @@
                 scene.remove(snakeMeshes.pop());
             }
 
-            // --- ORIENTATION LOGIC (The provided fix) ---
+            // --- STEP 4: SEGMENT ORIENTATION (Basis Construction) ---
+            // Every segment needs a stable orthonormal basis (Right, Normal, Forward).
             for (let i = 0; i < snakePositions.length; i++) {
                 snakeMeshes[i].position.copy(snakePositions[i]);
                 const pos = snakePositions[i];
@@ -210,9 +223,12 @@
 
                 let forward;
                 if (i < snakePositions.length - 1) {
+                    // For body segments, forward is the vector to the next segment.
                     forward = snakePositions[i + 1].clone().sub(pos).normalize();
                 } else {
+                    // For the head, forward is our current moveDir.
                     forward = moveDir.clone().projectOnPlane(normal).normalize();
+                    // Fallback to prevent singularity if direction is parallel to normal.
                     if (forward.length() < 0.01) {
                         const fallback = Math.abs(normal.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
                         forward = new THREE.Vector3().crossVectors(normal, fallback).normalize();
@@ -222,11 +238,13 @@
                 const right = new THREE.Vector3().crossVectors(normal, forward).normalize();
                 const actualForward = new THREE.Vector3().crossVectors(right, normal).normalize();
 
+                // Construct Matrix4 from Basis to generate Quaternion.
                 const targetQuat = new THREE.Quaternion();
                 const m = new THREE.Matrix4();
                 m.makeBasis(right, normal, actualForward);
                 targetQuat.setFromRotationMatrix(m);
 
+                // Smooth orientation transition.
                 const lerpSpeed = (i === 0) ? 0.4 : 0.2;
                 snakeMeshes[i].quaternion.slerp(targetQuat, lerpSpeed);
             }
@@ -242,6 +260,7 @@
             requestAnimationFrame(animate);
             update(time);
             if (!isGameOver && snakeMeshes.length > 0) {
+                // Smooth Camera Follow
                 visualHeadPos.lerp(snakeMeshes[0].position, 0.1);
                 camera.position.lerp(visualHeadPos.clone().normalize().multiplyScalar(18), 0.05);
                 camera.lookAt(visualHeadPos);
