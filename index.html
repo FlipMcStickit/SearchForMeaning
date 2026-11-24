@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Snake: Spherical Odyssey - V27 OPTIMIZED</title>
+    <title>Snake: Spherical Odyssey</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; }
         #ui { position: absolute; top: 20px; width: 100%; text-align: center; color: #00ffaa; pointer-events: none; text-shadow: 0 0 10px #00ffaa; }
@@ -10,7 +10,6 @@
         button { background: #00ffaa; border: none; padding: 10px 20px; font-weight: bold; cursor: pointer; margin-top: 20px; }
         #pause-ui { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 3em; display: none; pointer-events: none; }
 
-        /* NEW START SCREEN STYLES */
         #start-screen { 
             position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
             background: rgba(0,0,0,0.85); display: flex; flex-direction: column; 
@@ -26,7 +25,6 @@
     <div id="ui"><h1 id="score">SCORE: 0</h1></div>
     <div id="pause-ui">PAUSED</div>
 
-    <!-- NEW START SCREEN -->
     <div id="start-screen">
         <h1 style="color: #00ffaa; text-shadow: 0 0 20px #00ffaa;">SNAKE: SPHERICAL ODYSSEY</h1>
         <div class="instructions">
@@ -51,19 +49,16 @@
     <script type="module">
         import * as THREE from 'three';
 
-        // --- CONFIGURATION ---
         const RADIUS = 10;
         const STEP_DISTANCE = 0.45;
         const BASE_MOVE_INTERVAL = 150; 
         const BOOST_MOVE_INTERVAL = 60;  
 
-        // --- STATE ---
         let score = 0;
         let currentMoveInterval = BASE_MOVE_INTERVAL;
-        let isWPressed = false;
         let isGameOver = false;
         let isPaused = false;
-        let snakePositions = []; // This will now act as our "Breadcrumb Trail"
+        let snakePositions = []; 
         let snakeMeshes = [];    
         let moveDir = new THREE.Vector3(0, 1, 0);
         let inputQueue = []; 
@@ -71,22 +66,17 @@
         let food = { position: new THREE.Vector3(), mesh: null };
         let obstacles = [];
 
-        // Smoothing Helpers
         let visualHeadPos = new THREE.Vector3(RADIUS, 0, 0);
-        // visualSnakePositions will track the smooth visual movement
         let visualSnakePositions = []; 
         let cameraTargetUp = new THREE.Vector3(0, 1, 0);
         let currentCameraUp = new THREE.Vector3(0, 1, 0);
 
-        // --- PRE-ALLOCATED MATH VECTORS (Prevents Stuttering) ---
         const _v1 = new THREE.Vector3();
         const _v2 = new THREE.Vector3();
         const _v3 = new THREE.Vector3();
-        const _v4 = new THREE.Vector3();
         const _headNormal = new THREE.Vector3();
         const _desiredUp = new THREE.Vector3();
 
-        // --- THREE.JS SETUP ---
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -94,7 +84,6 @@
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
 
-        // --- THE PLANET ---
         const canvas = document.createElement('canvas');
         canvas.width = 512; canvas.height = 512;
         const ctx = canvas.getContext('2d');
@@ -132,7 +121,6 @@
         const mainLight = new THREE.PointLight(0x00ffaa, 100, 50);
         scene.add(mainLight);
 
-        // --- FOOD SETUP ---
         const foodGroup = new THREE.Group();
         const canvasF = document.createElement('canvas');
         canvasF.width = 64; canvasF.height = 64;
@@ -194,21 +182,13 @@
 
         function createSegment() {
             const segmentGroup = new THREE.Group();
-
-            // We use a bright, solid material instead of a transparent texture
-            // This ensures they are actually visible against the black void
             const segmentMat = new THREE.MeshBasicMaterial({ 
-                color: 0xff4400, // A bright, solid orange/red
+                color: 0xff4400,
                 transparent: true,
-                opacity: 0.9      // Very high opacity so they aren't faint
+                opacity: 0.9      
             });
-
-            // We create a "core" sphere that is bright and solid
             const core = new THREE.Mesh(new THREE.SphereGeometry(0.18, 16, 16), segmentMat);
             segmentGroup.add(core);
-
-            // We add a second, slightly larger layer to give it a "glow" look 
-            // without needing complex textures
             const glowMat = new THREE.MeshBasicMaterial({ 
                 color: 0xffaa00, 
                 transparent: true, 
@@ -216,7 +196,6 @@
             });
             const glowLayer = new THREE.Mesh(new THREE.SphereGeometry(0.25, 16, 16), glowMat);
             segmentGroup.add(glowLayer);
-
             return segmentGroup;
         }
 
@@ -297,7 +276,7 @@
         }
 
         window.addEventListener('keydown', (e) => {
-            if (e.code === 'KeyW') { isWPressed = true; currentMoveInterval = BOOST_MOVE_INTERVAL; }
+            if (e.code === 'KeyW') { currentMoveInterval = BOOST_MOVE_INTERVAL; }
             if (e.code === 'Space') { isPaused = !isPaused; return; }
             if (isGameOver || isPaused) return;
             const currentPos = snakePositions[0].clone().normalize(); 
@@ -318,7 +297,7 @@
         });
 
         window.addEventListener('keyup', (e) => {
-            if (e.code === 'KeyW') { isWPressed = false; currentMoveInterval = BASE_MOVE_INTERVAL; }
+            if (e.code === 'KeyW') { currentMoveInterval = BASE_MOVE_INTERVAL; }
         });
 
         function performMovementStep() {
@@ -364,32 +343,16 @@
                     document.getElementById('pause-ui').style.display = 'none';
                     if (currentTime - lastStepTime >= currentMoveInterval) { performMovementStep(); lastStepTime = currentTime; }
 
-                                        // This part is inside your animate function
-                    // --- ADVANCED PATH-FOLLOWING TAIL ---
-
-                    // 1. Move the visual head toward the actual head position
                     visualSnakePositions[0].lerp(snakePositions[0], 0.5);
 
-                    // 2. The "Tethered" Movement logic
-                    // Instead of chasing the visual tail (which lags), 
-                    // every segment now chases its corresponding spot in the 
-                    // ACTUAL mathematical path (snakePositions).
-                    // 2. The "Hybrid" Movement logic (Accuracy + Organic Flow)
                     for (let i = 1; i < visualSnakePositions.length; i++) {
                         if (snakePositions[i]) {
-                            // STEP A: The "Anchor" (Accuracy)
-                            // We move toward the actual math position.
                             visualSnakePositions[i].lerp(snakePositions[i], 0.5);
-
-                            // STEP B: The "Curve" (Organic Flow)
-                            // We also gently pull the segment toward the one in front of it.
-                            // This creates that beautiful "follow the leader" sweeping motion.
                             visualSnakePositions[i].lerp(visualSnakePositions[i - 1], 0.2);
                         } else {
                             visualSnakePositions[i].lerp(visualSnakePositions[i-1], 0.5);
                         }
 
-                        // 3. ANTI-OVERLAP (Keeps segments from bunching up)
                         const dist = visualSnakePositions[i].distanceTo(visualSnakePositions[i-1]);
                         if (dist < 0.25) { 
                             const direction = new THREE.Vector3().subVectors(visualSnakePositions[i], visualSnakePositions[i-1]).normalize();
@@ -398,7 +361,6 @@
                         }
                     }
 
-                    // 4. Handle length changes (Keeping visual and actual counts in sync)
                     if (visualSnakePositions.length > snakePositions.length) {
                         visualSnakePositions.pop();
                     } else if (visualSnakePositions.length < snakePositions.length) {
@@ -421,13 +383,10 @@
                             }
                             mesh.up.copy(pos).normalize();
 
-                                                        if (i > 0) {
+                            if (i > 0) {
                                 const time = currentTime * 0.005;
-                                // A very subtle pulse so they feel "organic"
                                 const pulse = 1.0 + Math.sin(time + i) * 0.05;
-
                                 mesh.children.forEach(child => {
-                                    // We apply the pulse to the scale
                                     child.scale.set(pulse, pulse, pulse);
                                 });
                             }
@@ -440,11 +399,7 @@
                         _headNormal.copy(visualHeadPos).normalize();
                         _desiredUp.copy(moveDir).projectOnPlane(_headNormal).normalize();
 
-                        if (Math.abs(_desiredUp.dot(_headNormal)) > 0.95) {
-                            cameraTargetUp.set(0, 1, 0).projectOnPlane(_headNormal).normalize();
-                        } else {
-                            cameraTargetUp.copy(_desiredUp);
-                        }
+                        cameraTargetUp.copy(_desiredUp);
 
                         currentCameraUp.lerp(cameraTargetUp, 0.05);
                         camera.up.copy(currentCameraUp);
@@ -479,15 +434,11 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
 
-        // This function is called when the button is clicked
         window.startGame = function() {
             document.getElementById('start-screen').style.display = 'none';
             initGame();
             requestAnimationFrame(animate);
         };
-
-        // We no longer call initGame() or animate() here 
-        // so the game waits for the button click.
     </script>
 </body>
 </html>
