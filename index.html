@@ -28,20 +28,20 @@
         import * as THREE from 'three';
 
         // --- CONFIGURATION ---
-const RADIUS = 10;
-const STEP_DISTANCE = 0.45;
-const BASE_MOVE_INTERVAL = 150; // The normal speed
-const BOOST_MOVE_INTERVAL = 60;  // The fast speed (lower number = faster)
-const SMOOTHING_SPEED = 0.15; 
+        const RADIUS = 10;
+        const STEP_DISTANCE = 0.45;
+        const BASE_MOVE_INTERVAL = 150; 
+        const BOOST_MOVE_INTERVAL = 60;  
+        const SMOOTHING_SPEED = 0.15; 
 
-// --- STATE ---
-let score = 0;
-let currentMoveInterval = BASE_MOVE_INTERVAL;
-let isWPressed = false;
+        // --- STATE ---
+        let score = 0;
+        let currentMoveInterval = BASE_MOVE_INTERVAL;
+        let isWPressed = false;
         let isGameOver = false;
         let isPaused = false;
-        let snakePositions = []; // Logical "grid" positions
-        let snakeMeshes = [];    // Visual meshes
+        let snakePositions = []; 
+        let snakeMeshes = [];    
         let moveDir = new THREE.Vector3(0, 1, 0);
         let inputQueue = []; 
         let lastStepTime = 0;
@@ -50,7 +50,7 @@ let isWPressed = false;
 
         // Smoothing Helpers
         let visualHeadPos = new THREE.Vector3(RADIUS, 0, 0);
-        let visualSnakePositions = []; // Smoothed positions for rendering
+        let visualSnakePositions = []; 
         let cameraTargetUp = new THREE.Vector3(0, 1, 0);
         let currentCameraUp = new THREE.Vector3(0, 1, 0);
 
@@ -75,58 +75,36 @@ let isWPressed = false;
         const planet = new THREE.Mesh(new THREE.SphereGeometry(RADIUS, 48, 48), new THREE.MeshPhongMaterial({ color: 0x111122, wireframe: true }));
         scene.add(planet);
 
-// --- NEW FLAME FOOD SETUP (Magic Candle Flame Style) ---
-const foodGroup = new THREE.Group();
+        // --- FOOD SETUP ---
+        const foodGroup = new THREE.Group();
+        const canvasF = document.createElement('canvas');
+        canvasF.width = 64; canvasF.height = 64;
+        const ctxF = canvasF.getContext('2d');
+        const gradF = ctxF.createRadialGradient(32, 32, 0, 32, 32, 32);
+        gradF.addColorStop(0, 'rgba(255, 50, 255, 1)');
+        gradF.addColorStop(0.5, 'rgba(150, 0, 255, 0.3)');
+        gradF.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctxF.fillStyle = gradF;
+        ctxF.fillRect(0, 0, 64, 64);
+        const particleTexture = new THREE.CanvasTexture(canvasF);
 
-// 1. Create a soft glow texture
-const canvas = document.createElement('canvas');
-canvas.width = 64;
-canvas.height = 64;
-const ctx = canvas.getContext('2d');
-const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
-gradient.addColorStop(0, 'rgba(255, 50, 255, 1)');   // Bright Magenta core
-gradient.addColorStop(0.5, 'rgba(150, 0, 255, 0.3)'); // Purple mid
-gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');       // Transparent edge
-ctx.fillStyle = gradient;
-ctx.fillRect(0, 0, 64, 64);
-const particleTexture = new THREE.CanvasTexture(canvas);
+        const particleCount = 25; 
+        const particles = [];
+        for (let i = 0; i < particleCount; i++) {
+            const spriteMat = new THREE.SpriteMaterial({ map: particleTexture, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+            const sprite = new THREE.Sprite(spriteMat);
+            sprite.userData = { speed: 0.2 + Math.random() * 0.3, drift: (Math.random() - 0.5) * 0.1, life: Math.random() };
+            foodGroup.add(sprite);
+            particles.push(sprite);
+        }
+        scene.add(foodGroup);
+        food = { position: new THREE.Vector3(), mesh: foodGroup, particles: particles };
 
-const particleCount = 25; 
-const particles = [];
-
-for (let i = 0; i < particleCount; i++) {
-    const spriteMat = new THREE.SpriteMaterial({ 
-        map: particleTexture, 
-        transparent: true, 
-        blending: THREE.AdditiveBlending,
-        depthWrite: false 
-    });
-
-    const sprite = new THREE.Sprite(spriteMat);
-
-    // We store custom properties on the sprite to help the flame animation
-    sprite.userData = {
-        speed: 0.2 + Math.random() * 0.3,
-        drift: (Math.random() - 0.5) * 0.1,
-        life: Math.random() // Used to randomize the "start" height
-    };
-
-    foodGroup.add(sprite);
-    particles.push(sprite);
-}
-
-scene.add(foodGroup);
-food = { position: new THREE.Vector3(), mesh: foodGroup, particles: particles };
-
-                    function createHead() {
+        function createHead() {
             const group = new THREE.Group();
-
-            // --- STEP 1: GENERATE "CLUMPY" PLASMA TEXTURE ---
             const canvas = document.createElement('canvas');
-            canvas.width = 256; 
-            canvas.height = 256;
+            canvas.width = 256; canvas.height = 256;
             const context = canvas.getContext('2d');
-
             function drawBlob(x, y, radius, color) {
                 const grad = context.createRadialGradient(x, y, 0, x, y, radius);
                 grad.addColorStop(0, color);
@@ -136,164 +114,62 @@ food = { position: new THREE.Vector3(), mesh: foodGroup, particles: particles };
                 context.arc(x, y, radius, 0, Math.PI * 2);
                 context.fill();
             }
-
             context.fillStyle = 'rgba(0, 0, 0, 0)'; 
             context.fillRect(0, 0, 256, 256);
-
-            // Increased density of blobs for more "fire"
-            for(let i=0; i<70; i++) {
-                const x = Math.random() * 256;
-                const y = Math.random() * 256;
-                const r = 10 + Math.random() * 45;
-                drawBlob(x, y, r, 'rgba(255, 60, 0, 0.5)'); 
-            }
-            for(let i=0; i<40; i++) {
-                const x = Math.random() * 256;
-                const y = Math.random() * 256;
-                const r = 5 + Math.random() * 25;
-                drawBlob(x, y, r, 'rgba(255, 255, 180, 0.4)'); 
-            }
-
+            for(let i=0; i<70; i++) drawBlob(Math.random()*256, Math.random()*256, 10+Math.random()*45, 'rgba(255, 60, 0, 0.5)'); 
+            for(let i=0; i<40; i++) drawBlob(Math.random()*256, Math.random()*256, 5+Math.random()*25, 'rgba(255, 255, 180, 0.4)'); 
             const glowTexture = new THREE.CanvasTexture(canvas);
-            glowTexture.wrapS = THREE.RepeatWrapping;
-            glowTexture.wrapT = THREE.RepeatWrapping;
-
-            // --- STEP 2: SCALE & MATERIALS ---
-                        // --- STEP 2: SCALE & MATERIALS ---
-            // Reduced scale from 0.75 to 0.4 to make the head much smaller
             const scale = 0.4; 
-
-            const coreMat = new THREE.MeshBasicMaterial({ 
-                map: glowTexture,
-                transparent: true,
-                blending: THREE.AdditiveBlending,
-                side: THREE.DoubleSide,
-                opacity: 1.0 
-            });
-
-            const auraMat = new THREE.MeshBasicMaterial({
-                map: glowTexture,
-                transparent: true,
-                blending: THREE.AdditiveBlending,
-                depthWrite: false,
-                side: THREE.DoubleSide,
-                opacity: 0.6 // Slightly lowered opacity to prevent "clutter"
-            });
-
-            // --- STEP 3: THE MESHES (Smaller, tighter dimensions) ---
-
-            // Core - Much tighter
+            const coreMat = new THREE.MeshBasicMaterial({ map: glowTexture, transparent: true, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+            const auraMat = new THREE.MeshBasicMaterial({ map: glowTexture, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, opacity: 0.6 });
             const core = new THREE.Mesh(new THREE.SphereGeometry(0.2 * scale, 32, 32), coreMat);
-            core.scale.set(1.1, 0.7, 1.1); 
-            group.add(core);
-
-            // Aura 1 - Tighter
+            core.scale.set(1.1, 0.7, 1.1); group.add(core);
             const aura1 = new THREE.Mesh(new THREE.SphereGeometry(0.4 * scale, 32, 32), auraMat);
-            aura1.scale.set(1.3, 1.0, 1.3); 
-            group.add(aura1);
-
-            // Aura 2 - Tighter
+            aura1.scale.set(1.3, 1.0, 1.3); group.add(aura1);
             const aura2 = new THREE.Mesh(new THREE.SphereGeometry(0.6 * scale, 32, 32), auraMat);
-            aura2.rotation.set(Math.PI / 3, Math.PI / 4, 0);
-            aura2.scale.set(1.1, 1.3, 1.1); 
-            group.add(aura2);
-
-            // Aura 3 - Tighter
+            aura2.rotation.set(Math.PI / 3, Math.PI / 4, 0); aura2.scale.set(1.1, 1.3, 1.1); group.add(aura2);
             const aura3 = new THREE.Mesh(new THREE.SphereGeometry(0.8 * scale, 32, 32), auraMat);
-            aura3.rotation.set(0, Math.PI / 2, Math.PI / 3);
-            group.add(aura3);
-
-            // --- STEP 4: THE LIGHT ---
-            // Reduced light range from 15 to 8 so it doesn't blind the player
-            const glowLight = new THREE.PointLight(0xffaa00, 80, 8); 
-            group.add(glowLight);
-
+            aura3.rotation.set(0, Math.PI / 2, Math.PI / 3); group.add(aura3);
+            const glowLight = new THREE.PointLight(0xffaa00, 80, 8); group.add(glowLight);
             group.userData.isPlasma = true;
-            group.userData.layers = [aura1, aura2, aura3];
-
             return group;
         }
 
         function createSegment() {
             const segmentGroup = new THREE.Group();
-
-            // We use more particles to create a "cloud" effect rather than a solid object
-            const particleCount = 12; 
-            for (let i = 0; i < particleCount; i++) {
+            const pCount = 12; 
+            for (let i = 0; i < pCount; i++) {
                 const canvas = document.createElement('canvas');
                 canvas.width = 32; canvas.height = 32;
                 const ctx = canvas.getContext('2d');
                 const grad = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
-
-                // A more "nebula" color palette: Magentas, Cyans, and Oranges
                 const colors = ['rgba(0, 255, 255, 0.5)', 'rgba(255, 0, 255, 0.5)', 'rgba(255, 100, 0, 0.5)'];
                 const chosenColor = colors[Math.floor(Math.random() * colors.length)];
-
                 grad.addColorStop(0, chosenColor);
                 grad.addColorStop(1, 'rgba(0,0,0,0)');
                 ctx.fillStyle = grad;
                 ctx.fillRect(0, 0, 32, 32);
-
                 const texture = new THREE.CanvasTexture(canvas);
-                const mat = new THREE.SpriteMaterial({ 
-                    map: texture, 
-                    transparent: true, 
-                    blending: THREE.AdditiveBlending,
-                    depthWrite: false 
-                });
-
+                const mat = new THREE.SpriteMaterial({ map: texture, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
                 const sprite = new THREE.Sprite(mat);
-
-                // Store turbulence data in userData
-                sprite.userData = {
-                    offset: Math.random() * Math.PI * 2,
-                    radius: 0.1 + Math.random() * 0.2,
-                    speed: 0.5 + Math.random() * 1.5
-                };
-
-                // Start them at random positions within the segment
-                sprite.position.set(
-                    (Math.random() - 0.5) * 0.4,
-                    (Math.random() - 0.5) * 0.4,
-                    (Math.random() - 0.5) * 0.4
-                );
-
+                sprite.userData = { offset: Math.random() * Math.PI * 2, radius: 0.1 + Math.random() * 0.2, speed: 0.5 + Math.random() * 1.5 };
+                sprite.position.set((Math.random()-0.5)*0.4, (Math.random()-0.5)*0.4, (Math.random()-0.5)*0.4);
                 const s = 0.3 + Math.random() * 0.5;
                 sprite.scale.set(s, s, s);
-
                 segmentGroup.add(sprite);
             }
-
-            // We keep a faint central glow to hold the "gas" together
-            const coreGeom = new THREE.SphereGeometry(0.1, 8, 8);
-            const coreMat = new THREE.MeshBasicMaterial({ 
-                color: 0x00ffaa, 
-                transparent: true, 
-                opacity: 0.2,
-                blending: THREE.AdditiveBlending 
-            });
-            const core = new THREE.Mesh(coreGeom, coreMat);
-            segmentGroup.add(core);
-
+            const coreMat = new THREE.MeshBasicMaterial({ color: 0x00ffaa, transparent: true, opacity: 0.2, blending: THREE.AdditiveBlending });
+            segmentGroup.add(new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), coreMat));
             return segmentGroup;
         }
 
         function spawnFood() {
-            let validSpawn = false;
-            let attempts = 0;
-            const MAX_ATTEMPTS = 100;
+            let validSpawn = false, attempts = 0;
             let newFoodPos = new THREE.Vector3();
-
-            while (!validSpawn && attempts < MAX_ATTEMPTS) {
+            while (!validSpawn && attempts < 100) {
                 attempts++;
-                const phi = Math.acos(2 * Math.random() - 1); 
-                const theta = Math.random() * Math.PI * 2;
-                newFoodPos.set(
-                    RADIUS * Math.sin(phi) * Math.cos(theta),
-                    RADIUS * Math.sin(phi) * Math.sin(theta),
-                    RADIUS * Math.cos(phi)
-                );
-
+                const phi = Math.acos(2 * Math.random() - 1), theta = Math.random() * Math.PI * 2;
+                newFoodPos.set(RADIUS * Math.sin(phi) * Math.cos(theta), RADIUS * Math.sin(phi) * Math.sin(theta), RADIUS * Math.cos(phi));
                 let collision = false;
                 for (let obs of obstacles) if (newFoodPos.distanceTo(obs.position) < 1.5) collision = true;
                 for (let pos of snakePositions) if (newFoodPos.distanceTo(pos) < 1.5) collision = true;
@@ -305,292 +181,153 @@ food = { position: new THREE.Vector3(), mesh: foodGroup, particles: particles };
 
         function spawnObstacle() {
             const obs = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 0.7), new THREE.MeshPhongMaterial({ color: 0x444444 }));
-            let validSpawn = false;
-            let attempts = 0;
-            const startPos = snakePositions[0];
-
+            let validSpawn = false, attempts = 0, startPos = snakePositions[0];
             while (!validSpawn && attempts < 50) {
                 attempts++;
-                const phi = Math.random() * Math.PI; 
-                const theta = Math.random() * Math.PI * 2;
-                const potentialPos = new THREE.Vector3(
-                    RADIUS * Math.sin(phi) * Math.cos(theta),
-                    RADIUS * Math.sin(phi) * Math.sin(theta),
-                    RADIUS * Math.cos(phi)
-                );
-                if (potentialPos.distanceTo(startPos) > 4.0) {
-                    validSpawn = true;
-                    obs.position.copy(potentialPos);
-                }
+                const phi = Math.random() * Math.PI, theta = Math.random() * Math.PI * 2;
+                const pot = new THREE.Vector3(RADIUS * Math.sin(phi) * Math.cos(theta), RADIUS * Math.sin(phi) * Math.sin(theta), RADIUS * Math.cos(phi));
+                if (pot.distanceTo(startPos) > 4.0) { validSpawn = true; obs.position.copy(pot); }
             }
             if (validSpawn) { scene.add(obs); obstacles.push(obs); }
         }
 
         function initGame() {
-            snakeMeshes.forEach(m => scene.remove(m));
-            snakeMeshes = [];
-            obstacles.forEach(o => scene.remove(o));
-            obstacles = [];
-
+            snakeMeshes.forEach(m => scene.remove(m)); snakeMeshes = [];
+            obstacles.forEach(o => scene.remove(o)); obstacles = [];
             snakePositions = [new THREE.Vector3(RADIUS, 0, 0)];
             visualSnakePositions = [new THREE.Vector3(RADIUS, 0, 0)];
-            const head = createHead();
-            snakeMeshes = [head];
-            scene.add(head);
-
-            score = 0; 
-            isGameOver = false;
-            moveDir.set(0, 1, 0);
-            inputQueue = []; 
-            lastStepTime = performance.now();
-
+            const head = createHead(); snakeMeshes = [head]; scene.add(head);
+            score = 0; isGameOver = false; moveDir.set(0, 1, 0); inputQueue = []; lastStepTime = performance.now();
             document.getElementById('score').innerText = "SCORE: 0";
             document.getElementById('game-over').style.display = 'none';
-
             for(let i=0; i<30; i++) spawnObstacle();
             spawnFood();
         }
 
-            window.addEventListener('keydown', (e) => {
-            // Handle Speed Boost (W)
-            if (e.code === 'KeyW') {
-                isWPressed = true;
-                currentMoveInterval = BOOST_MOVE_INTERVAL;
-            }
-
-            // 1. Handle Pausing
-            if (e.code === 'Space') {
-                isPaused = !isPaused;
-                return;
-            }
-
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'KeyW') { isWPressed = true; currentMoveInterval = BOOST_MOVE_INTERVAL; }
+            if (e.code === 'Space') { isPaused = !isPaused; return; }
             if (isGameOver || isPaused) return;
-
             const currentPos = snakePositions[0].clone().normalize(); 
             const rightVec = new THREE.Vector3().crossVectors(currentPos, moveDir).normalize();
-            const upRelativeVec = new THREE.Vector3().crossVectors(rightVec, currentPos).normalize();
-
+            const upRel = new THREE.Vector3().crossVectors(rightVec, currentPos).normalize();
             let newDir = moveDir.clone();
-
-            // Updated Controls: A/D for left/right, W/S for up/down
             if (e.key === 'a' || e.key === 'ArrowLeft') newDir.copy(rightVec);
             else if (e.key === 'd' || e.key === 'ArrowRight') newDir.copy(rightVec.clone().negate());
-            else if (e.key === 'w' || e.key === 'ArrowUp') newDir.copy(upRelativeVec);
-            else if (e.key === 's' || e.key === 'ArrowDown') newDir.copy(upRelativeVec.clone().negate());
+            else if (e.key === 'w' || e.key === 'ArrowUp') newDir.copy(upRel);
+            else if (e.key === 's' || e.key === 'ArrowDown') newDir.copy(upRel.clone().negate());
             else return; 
-
             if (newDir.dot(moveDir) < -0.5) return;
-
-            if (inputQueue.length > 0) {
-                const lastQueuedDir = inputQueue[inputQueue.length - 1];
-                if (newDir.dot(lastQueuedDir) < -0.5) return; 
-            }
-
-            newDir.projectOnPlane(currentPos);
-            newDir.normalize();
-
+            if (inputQueue.length > 0 && newDir.dot(inputQueue[inputQueue.length-1]) < -0.5) return;
+            newDir.projectOnPlane(currentPos); newDir.normalize();
             if (newDir.dot(moveDir) > 0.99 && inputQueue.length === 0) return;
-
             inputQueue.push(newDir.clone());
             if(inputQueue.length > 2) inputQueue.shift();
         });
 
-        // NEW: We need a separate listener for 'keyup' to know when the player lets go of W
         window.addEventListener('keyup', (e) => {
-            if (e.code === 'KeyW') {
-                isWPressed = false;
-                currentMoveInterval = BASE_MOVE_INTERVAL;
-            }
+            if (e.code === 'KeyW') { isWPressed = false; currentMoveInterval = BASE_MOVE_INTERVAL; }
         });
 
         function performMovementStep() {
             if (inputQueue.length > 0) moveDir.copy(inputQueue.shift());
-
             const currentPos = snakePositions[0].clone();
             const tangentDir = moveDir.clone().normalize();
-            const newPos = currentPos.clone()
-                .add(tangentDir.multiplyScalar(STEP_DISTANCE))
-                .normalize()
-                .multiplyScalar(RADIUS);
-
+            const newPos = currentPos.clone().add(tangentDir.multiplyScalar(STEP_DISTANCE)).normalize().multiplyScalar(RADIUS);
             moveDir.copy(newPos.clone().sub(currentPos).normalize());
 
-                                    // --- IMPROVED COLLISION LOGIC ---
-            let collisionDetected = false;
+            let collision = false;
+            for (let i = 6; i < snakePositions.length; i++) if (newPos.distanceTo(snakePositions[i]) < 0.3) collision = true;
+            if (!collision) for (let obs of obstacles) if (newPos.distanceTo(obs.position) < 0.4) collision = true;
+            if (collision) { endGame(); return; }
 
-                        // 1. SELF COLLISION
-            const selfCollisionRadius = 0.3; 
-            for (let i = 6; i < snakePositions.length; i++) {
-                // We check distance against the logical positions, not the visual meshes
-                if (newPos.distanceTo(snakePositions[i]) < selfCollisionRadius) {
-                    collisionDetected = true;
-                    break;
-                }
-            }
-
-            // 2. OBSTACLE COLLISION
-            // Reduced from 0.8 to 0.4 to match the visual head size
-            if (!collisionDetected) {
-                for (let i = 0; i < obstacles.length; i++) {
-                    if (newPos.distanceTo(obstacles[i].position) < 0.4) {
-                        collisionDetected = true;
-                        break;
-                    }
-                }
-            }
-
-            // 3. FINAL CHECK
-            if (collisionDetected) {
-                endGame();
-                return;
-            }
-
-            // 4. EATING LOGIC
-            // Reduced from 1.0 to 0.6 so the food feels "tangible"
-            const eating = newPos.distanceTo(food.position) < 0.6;
-            if (eating) {
-                score += 10;
-                document.getElementById('score').innerText = `SCORE: ${score}`;
+            if (newPos.distanceTo(food.position) < 0.6) {
+                score += 10; document.getElementById('score').innerText = `SCORE: ${score}`;
                 spawnFood();
-            } else {
-                snakePositions.pop();
-            }
+            } else { snakePositions.pop(); }
+            snakePositions.unshift(newPos.clone());
 
-             snakePositions.unshift(newPos.clone());
-
-            // Sync Meshes
             while (snakeMeshes.length < snakePositions.length) {
                 const m = snakeMeshes.length === 0 ? createHead() : createSegment();
-                snakeMeshes.push(m);
-                scene.add(m);
+                snakeMeshes.push(m); scene.add(m);
             }
-            while (snakeMeshes.length > snakePositions.length) {
-                scene.remove(snakeMeshes.pop());
-            }
+            while (snakeMeshes.length > snakePositions.length) scene.remove(snakeMeshes.pop());
 
-            // --- NEW: DRAG LOGIC ---
-            // We ensure the visual array is always exactly the same size as the logical array
             if (visualSnakePositions.length < snakePositions.length) {
-                // If we just ate food and grew, add new positions to the visual array
-                for (let i = visualSnakePositions.length; i < snakePositions.length; i++) {
-                    visualSnakePositions.push(snakePositions[i].clone());
-                }
+                for (let i = visualSnakePositions.length; i < snakePositions.length; i++) visualSnakePositions.push(snakePositions[i].clone());
             } else if (visualSnakePositions.length > snakePositions.length) {
-                // If we moved and the snake got shorter, trim the visual array
                 visualSnakePositions.pop();
             }
         }
 
         function endGame() {
-            isGameOver = true;
-            document.getElementById('game-over').style.display = 'block';
+            isGameOver = true; document.getElementById('game-over').style.display = 'block';
             document.getElementById('final-score').innerText = `FINAL SCORE: ${score}`;
         }
 
         function animate(currentTime) {
             requestAnimationFrame(animate);
-
             if (!isGameOver) {
                 if (!isPaused) {
                     document.getElementById('pause-ui').style.display = 'none';
-                    if (currentTime - lastStepTime >= currentMoveInterval) {
-                        performMovementStep();
-                        lastStepTime = currentTime;
+                    if (currentTime - lastStepTime >= currentMoveInterval) { performMovementStep(); lastStepTime = currentTime; }
+
+                    // DRAG LOGIC
+                    visualSnakePositions[0].lerp(snakePositions[0], 0.3);
+                    for (let i = 1; i < visualSnakePositions.length; i++) {
+                        const dragFactor = 0.15 / (1 + (i * 0.05)); 
+                        const targetPos = visualSnakePositions[i - 1].clone();
+                        visualSnakePositions[i].lerp(targetPos, dragFactor);
                     }
+                    if (visualSnakePositions.length > 1) visualSnakePositions[visualSnakePositions.length-1].lerp(snakePositions[snakePositions.length-1], 0.1);
 
-                    // 1. SMOOTH THE SNAKE PATH
-                    // We lerp the visual positions toward the logical grid positions
-                    for (let i = 0; i < snakePositions.length; i++) {
-                        visualSnakePositions[i].lerp(snakePositions[i], SMOOTHING_SPEED);
-                    }
+                    // UPDATE MESHES
+                    if (snakeMeshes.length > 0) {
+                        for (let i = 0; i < snakeMeshes.length; i++) {
+                            const mesh = snakeMeshes[i];
+                            const pos = visualSnakePositions[i];
+                            mesh.position.copy(pos);
+                            if (i < snakeMeshes.length - 1) mesh.lookAt(visualSnakePositions[i+1]);
+                            else mesh.lookAt(pos.clone().add(moveDir));
+                            mesh.up.copy(pos.clone().normalize());
 
-                                            // 2. UPDATE MESHES (Visual)
-                        if (snakeMeshes.length > 0) {
-                            for (let i = 0; i < snakeMeshes.length; i++) {
-                                const mesh = snakeMeshes[i];
-                                const pos = visualSnakePositions[i];
-                                mesh.position.copy(pos);
-
-                                // Orientation
-                                if (i < snakeMeshes.length - 1) {
-                                    mesh.lookAt(visualSnakePositions[i+1]);
-                                } else {
-                                    const lookTarget = pos.clone().add(moveDir);
-                                    mesh.lookAt(lookTarget);
-                                }
-                                mesh.up.copy(pos.clone().normalize());
-
-                                // --- NEW: TAIL CHURN EFFECT ---
-                                // If it's a tail segment (not the head), make the debris wiggle
-                                if (i > 0) {
-                                    const time = currentTime * 0.005;
-                                    mesh.children.forEach((child, idx) => {
-                                        // Wiggle the sprites slightly over time
-                                        const wiggle = Math.sin(time + i + idx) * 0.02;
-                                        if (child.isSprite) {
-                                            child.position.x += wiggle;
-                                            child.scale.setScalar(0.4 + Math.sin(time + i) * 0.1);
-                                        }
-                                    });
-                                }
+                            if (i > 0) {
+                                const time = currentTime * 0.005;
+                                const turbulence = isWPressed ? 0.05 : 0.02;
+                                mesh.children.forEach((child, idx) => {
+                                    if (child.isSprite) {
+                                        child.position.x += Math.sin(time * 2 + i + idx) * turbulence;
+                                        child.position.y += Math.cos(time * 1.5 + i + idx) * turbulence;
+                                        const pulse = 0.4 + Math.sin(time + i) * 0.15;
+                                        child.scale.set(pulse, pulse, pulse);
+                                    }
+                                });
                             }
-                        // ---------------------------------
-
-                        // 3. SMOOTH CAMERA
+                        }
                         visualHeadPos.lerp(snakeMeshes[0].position, 0.1);
                         camera.position.lerp(visualHeadPos.clone().normalize().multiplyScalar(18), 0.05);
-
-                        // Stable Camera Up: Calculate where Up should be, then lerp it
                         const headNormal = visualHeadPos.clone().normalize();
                         const desiredUp = moveDir.clone().projectOnPlane(headNormal).normalize();
-                        // If the desiredUp is too close to headNormal, fallback to a stable axis
-                        if (Math.abs(desiredUp.dot(headNormal)) > 0.95) {
-                            cameraTargetUp.set(0, 1, 0).projectOnPlane(headNormal).normalize();
-                        } else {
-                            cameraTargetUp.copy(desiredUp);
-                        }
-
+                        if (Math.abs(desiredUp.dot(headNormal)) > 0.95) cameraTargetUp.set(0, 1, 0).projectOnPlane(headNormal).normalize();
+                        else cameraTargetUp.copy(desiredUp);
                         currentCameraUp.lerp(cameraTargetUp, 0.05);
                         camera.up.copy(currentCameraUp);
                         camera.lookAt(visualHeadPos);
-
                         light.position.copy(visualHeadPos.clone().multiplyScalar(2));
                     }
-                } else {
-                    document.getElementById('pause-ui').style.display = 'block';
-                }
+                } else { document.getElementById('pause-ui').style.display = 'block'; }
             }
-                        // --- MAGIC FLAME ANIMATION (Fixed Orientation) ---
+
             if (food.mesh) {
                 const time = performance.now() * 0.005;
-
-                // 1. Determine the "Up" direction (from center of planet to food)
                 const upDir = food.position.clone().normalize();
-
-                // 2. Rotate the whole food group so its local Y axis points "Up" away from the planet
-                // This makes the particle math much simpler!
                 food.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), upDir);
-
                 food.particles.forEach((p, i) => {
-                    // This creates the "rising" effect of a flame
                     const lifeProgress = (time * p.userData.speed + p.userData.life) % 1;
-
-                    // Position: Local Y goes up, X and Z wiggle slightly
-                    // We scale the width based on height so it's pointy at the top
-                    const height = lifeProgress * 0.8; 
-                    const width = (1.0 - lifeProgress) * 0.4; 
-
-                    p.position.set(
-                        p.userData.drift * Math.sin(time + i) * width,
-                        height, 
-                        p.userData.drift * Math.cos(time + i) * width
-                    );
-
-                    // Size: Particles get smaller as they rise to the "tip" of the flame
+                    const height = lifeProgress * 0.8, width = (1.0 - lifeProgress) * 0.4; 
+                    p.position.set(p.userData.drift * Math.sin(time + i) * width, height, p.userData.drift * Math.cos(time + i) * width);
                     const scale = (1.0 - lifeProgress) * 0.5;
                     p.scale.set(scale, scale, scale);
-
-                    // Opacity: Fade out as they reach the top
                     p.material.opacity = (1.0 - lifeProgress);
                 });
             }
