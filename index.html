@@ -39,7 +39,7 @@
         let isWPressed = false;
         let isGameOver = false;
         let isPaused = false;
-        let snakePositions = []; 
+        let snakePositions = []; // This will now act as our "Breadcrumb Trail"
         let snakeMeshes = [];    
         let moveDir = new THREE.Vector3(0, 1, 0);
         let inputQueue = []; 
@@ -49,6 +49,7 @@
 
         // Smoothing Helpers
         let visualHeadPos = new THREE.Vector3(RADIUS, 0, 0);
+        // visualSnakePositions will track the smooth visual movement
         let visualSnakePositions = []; 
         let cameraTargetUp = new THREE.Vector3(0, 1, 0);
         let currentCameraUp = new THREE.Vector3(0, 1, 0);
@@ -169,36 +170,28 @@
 
         function createSegment() {
             const segmentGroup = new THREE.Group();
-            const canvas = document.createElement('canvas');
-            canvas.width = 256; canvas.height = 256;
-            const context = canvas.getContext('2d');
-            function drawBlob(x, y, radius, color) {
-                const grad = context.createRadialGradient(x, y, 0, x, y, radius);
-                grad.addColorStop(0, color);
-                grad.addColorStop(1, 'rgba(0,0,0,0)');
-                context.fillStyle = grad;
-                context.beginPath();
-                context.arc(x, y, radius, 0, Math.PI * 2);
-                context.fill();
-            }
-            context.fillStyle = 'rgba(0, 0, 0, 0)'; 
-            context.fillRect(0, 0, 256, 256);
-            for(let i=0; i<40; i++) drawBlob(Math.random()*256, Math.random()*256, 10+Math.random()*45, 'rgba(255, 60, 0, 0.5)'); 
-            for(let i=0; i<20; i++) drawBlob(Math.random()*256, Math.random()*256, 5+Math.random()*25, 'rgba(255, 255, 180, 0.4)'); 
 
-            const glowTexture = new THREE.CanvasTexture(canvas);
-            const scale = 0.2; 
-            const auraMat = new THREE.MeshBasicMaterial({ map: glowTexture, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, opacity: 0.5 });
+            // We use a bright, solid material instead of a transparent texture
+            // This ensures they are actually visible against the black void
+            const segmentMat = new THREE.MeshBasicMaterial({ 
+                color: 0xff4400, // A bright, solid orange/red
+                transparent: true,
+                opacity: 0.9      // Very high opacity so they aren't faint
+            });
 
-            const aura1 = new THREE.Mesh(new THREE.SphereGeometry(0.4 * scale, 16, 16), auraMat);
-            aura1.scale.set(1.2, 0.8, 1.2); 
-            segmentGroup.add(aura1);
-            const aura2 = new THREE.Mesh(new THREE.SphereGeometry(0.7 * scale, 16, 16), auraMat);
-            aura2.rotation.set(Math.PI / 3, Math.PI / 4, 0); 
-            segmentGroup.add(aura2);
-            const aura3 = new THREE.Mesh(new THREE.SphereGeometry(1.0 * scale, 16, 16), auraMat);
-            aura3.rotation.set(0, Math.PI / 2, Math.PI / 3); 
-            segmentGroup.add(aura3);
+            // We create a "core" sphere that is bright and solid
+            const core = new THREE.Mesh(new THREE.SphereGeometry(0.18, 16, 16), segmentMat);
+            segmentGroup.add(core);
+
+            // We add a second, slightly larger layer to give it a "glow" look 
+            // without needing complex textures
+            const glowMat = new THREE.MeshBasicMaterial({ 
+                color: 0xffaa00, 
+                transparent: true, 
+                opacity: 0.4 
+            });
+            const glowLayer = new THREE.Mesh(new THREE.SphereGeometry(0.25, 16, 16), glowMat);
+            segmentGroup.add(glowLayer);
 
             return segmentGroup;
         }
@@ -347,13 +340,53 @@
                     document.getElementById('pause-ui').style.display = 'none';
                     if (currentTime - lastStepTime >= currentMoveInterval) { performMovementStep(); lastStepTime = currentTime; }
 
-                    visualSnakePositions[0].lerp(snakePositions[0], 0.3);
+                                        // This part is inside your animate function
+                    // --- ADVANCED PATH-FOLLOWING TAIL ---
+
+                    // 1. Move the visual head toward the actual head position
+                    visualSnakePositions[0].lerp(snakePositions[0], 0.4);
+
+                    // 2. Move each following segment
                     for (let i = 1; i < visualSnakePositions.length; i++) {
-                        const dragFactor = 0.15 / (1 + (i * 0.05)); 
+                        // We use a slightly lower drag here to allow for more "swing"
+                        const dragFactor = 0.35; 
+
+                        // Instead of just lerping to the previous segment's CURRENT position,
+                        // we are essentially telling the tail to follow the "breadcrumb trail"
+                        // left by the head. 
                         visualSnakePositions[i].lerp(visualSnakePositions[i - 1], dragFactor);
+
+                        // 3. ANTI-OVERLAP (Soft Nudge)
+                        const dist = visualSnakePositions[i].distanceTo(visualSnakePositions[i-1]);
+                        if (dist < 0.22) { 
+                            const direction = new THREE.Vector3().subVectors(visualSnakePositions[i], visualSnakePositions[i-1]).normalize();
+                            if (direction.length() === 0) direction.copy(moveDir);
+                            visualSnakePositions[i].copy(visualSnakePositions[i-1]).add(direction.multiplyScalar(0.22));
+                        }
                     }
-                    if (visualSnakePositions.length > 1) {
-                        visualSnakePositions[visualSnakePositions.length-1].lerp(snakePositions[snakePositions.length-1], 0.1);
+
+                    // 4. THE "PINNED TAIL" FIX (The Tail Whip)
+                    // We check if the tail is lagging too far behind the actual snake length.
+                    // If the tail is "stuck", we force the last segment to move toward 
+                    // its actual intended position to "unstick" it.
+                    if (visualSnakePositions.length > 0) {
+                        const lastVisual = visualSnakePositions[visualSnakePositions.length - 1];
+                        const lastActual = snakePositions[snakePositions.length - 1];
+
+                        // If the last visual segment is too far from the actual tail position, 
+                        // pull it toward it. This prevents the "pinned" effect.
+                        if (lastVisual.distanceTo(lastActual) > 1.0) {
+                            lastVisual.lerp(lastActual, 0.1);
+                        }
+                    }
+
+                    // 5. Handle length changes
+                    if (visualSnakePositions.length > snakePositions.length) {
+                        visualSnakePositions.pop();
+                    } else if (visualSnakePositions.length < snakePositions.length) {
+                        for (let i = visualSnakePositions.length; i < snakePositions.length; i++) {
+                            visualSnakePositions.push(snakePositions[i].clone());
+                        }
                     }
 
                     if (snakeMeshes.length > 0) {
@@ -370,20 +403,14 @@
                             }
                             mesh.up.copy(pos).normalize();
 
-                            if (i > 0) {
+                                                        if (i > 0) {
                                 const time = currentTime * 0.005;
-                                const turbulence = isWPressed ? 0.05 : 0.02;
-                                const taper = Math.max(0.1, 0.4 - (i * 0.04)); 
+                                // A very subtle pulse so they feel "organic"
+                                const pulse = 1.0 + Math.sin(time + i) * 0.05;
 
-                                mesh.children.forEach((child, idx) => {
-                                    if (child.isSprite || child.material.transparent) {
-                                        const orbitRadius = taper; 
-                                        const angle = time + idx;
-                                        child.position.x = Math.cos(angle) * orbitRadius + Math.sin(time * 2 + i + idx) * turbulence;
-                                        child.position.y = Math.sin(angle) * orbitRadius + Math.cos(time * 1.5 + i + idx) * turbulence;
-                                        const pulse = 0.4 + Math.sin(time + i) * 0.15;
-                                        child.scale.set(pulse, pulse, pulse);
-                                    }
+                                mesh.children.forEach(child => {
+                                    // We apply the pulse to the scale
+                                    child.scale.set(pulse, pulse, pulse);
                                 });
                             }
                         }
