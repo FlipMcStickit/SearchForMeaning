@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Snake: Spherical Odyssey - V26 SMOOTH</title>
+    <title>Snake: Spherical Odyssey - V27 OPTIMIZED</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; }
         #ui { position: absolute; top: 20px; width: 100%; text-align: center; color: #00ffaa; pointer-events: none; text-shadow: 0 0 10px #00ffaa; }
@@ -32,7 +32,6 @@
         const STEP_DISTANCE = 0.45;
         const BASE_MOVE_INTERVAL = 150; 
         const BOOST_MOVE_INTERVAL = 60;  
-        const SMOOTHING_SPEED = 0.15; 
 
         // --- STATE ---
         let score = 0;
@@ -66,7 +65,7 @@
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
-        renderer.setPixelRatio(window.devicePixelRatio); // Better resolution handling
+        renderer.setPixelRatio(window.devicePixelRatio);
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
 
@@ -89,14 +88,12 @@
             ctx.fill();
         }
         const cloudTexture = new THREE.CanvasTexture(canvas);
-
         const planetMaterial = new THREE.MeshPhongMaterial({ 
             map: cloudTexture,
             transparent: true, 
             opacity: 0.4,        
             side: THREE.DoubleSide 
         });
-
         const planet = new THREE.Mesh(new THREE.SphereGeometry(RADIUS, 64, 64), planetMaterial);
         scene.add(planet);
 
@@ -107,14 +104,8 @@
         scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.5 })));
 
         scene.add(new THREE.AmbientLight(0x404040, 2));
-        // We will manage the main light dynamically in the animate loop
-        const light = new THREE.PointLight(0x00ffaa, 100, 50);
-        scene.add(light);
-
-        // 4. LIGHTING (Crucial: Don't delete these!)
-        scene.add(new THREE.AmbientLight(0x404040, 2));
-        const light = new THREE.PointLight(0x00ffaa, 100, 50);
-        scene.add(light);
+        const mainLight = new THREE.PointLight(0x00ffaa, 100, 50);
+        scene.add(mainLight);
 
         // --- FOOD SETUP ---
         const foodGroup = new THREE.Group();
@@ -199,20 +190,16 @@
             const scale = 0.2; 
             const auraMat = new THREE.MeshBasicMaterial({ map: glowTexture, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, opacity: 0.5 });
 
-            // Create 3 layers of glow
             const aura1 = new THREE.Mesh(new THREE.SphereGeometry(0.4 * scale, 16, 16), auraMat);
             aura1.scale.set(1.2, 0.8, 1.2); 
             segmentGroup.add(aura1);
-
             const aura2 = new THREE.Mesh(new THREE.SphereGeometry(0.7 * scale, 16, 16), auraMat);
             aura2.rotation.set(Math.PI / 3, Math.PI / 4, 0); 
             segmentGroup.add(aura2);
-
             const aura3 = new THREE.Mesh(new THREE.SphereGeometry(1.0 * scale, 16, 16), auraMat);
             aura3.rotation.set(0, Math.PI / 2, Math.PI / 3); 
             segmentGroup.add(aura3);
 
-            // REMOVED PointLight from segments to save performance
             return segmentGroup;
         }
 
@@ -233,32 +220,19 @@
         }
 
         function spawnObstacle() {
-            // 1. Create a complex shape (Icosahedron)
-            const geometry = new THREE.IcosahedronGeometry(0.6, 0); // Low detail = sharper edges
-
-            // 2. Randomize the shape by moving its vertices
+            const geometry = new THREE.IcosahedronGeometry(0.6, 0);
             const positionAttribute = geometry.getAttribute('position');
             const vertex = new THREE.Vector3();
             for (let i = 0; i < positionAttribute.count; i++) {
                 vertex.fromBufferAttribute(positionAttribute, i);
-                // Move each corner by a random amount to make it look "crystalized"
                 const factor = 0.3 + Math.random() * 0.4; 
                 vertex.multiplyScalar(factor);
                 positionAttribute.setXYZ(i, vertex.x, vertex.y, vertex.z);
             }
-            geometry.computeVertexNormals(); // Recalculate lighting for the new shape
-
-            // 3. Create a random shade of green
+            geometry.computeVertexNormals();
             const greenShades = [0x00ff88, 0x22aa44, 0x00cc66, 0xadffaf, 0x004422];
             const randomColor = greenShades[Math.floor(Math.random() * greenShades.length)];
-
-            // 4. Use MeshPhongMaterial so it reacts to the light (shiny/crystalline look)
-            const material = new THREE.MeshPhongMaterial({ 
-                color: randomColor, 
-                flatShading: true, // This is key! It gives it that faceted crystal look
-                shininess: 100 
-            });
-
+            const material = new THREE.MeshPhongMaterial({ color: randomColor, flatShading: true, shininess: 100 });
             const obs = new THREE.Mesh(geometry, material);
 
             let validSpawn = false, attempts = 0, startPos = snakePositions[0];
@@ -272,7 +246,6 @@
         }
 
         function initGame() {
-            // Clean up old meshes and their geometries/materials to prevent memory leaks
             snakeMeshes.forEach(m => {
                 m.traverse(child => {
                     if (child.geometry) child.geometry.dispose();
@@ -284,31 +257,24 @@
                 scene.remove(m);
             });
             snakeMeshes = [];
-
             obstacles.forEach(o => {
                 if (o.geometry) o.geometry.dispose();
                 if (o.material) o.material.dispose();
                 scene.remove(o);
             });
             obstacles = [];
-
             snakePositions = [new THREE.Vector3(RADIUS, 0, 0)];
             visualSnakePositions = [new THREE.Vector3(RADIUS, 0, 0)];
-
             const head = createHead(); 
             snakeMeshes = [head]; 
             scene.add(head);
-
             score = 0; 
             isGameOver = false; 
             moveDir.set(0, 1, 0); 
             inputQueue = []; 
             lastStepTime = performance.now();
-
             document.getElementById('score').innerText = "SCORE: 0";
             document.getElementById('game-over').style.display = 'none';
-
-            // Clear old obstacles if any left
             for(let i=0; i<30; i++) spawnObstacle();
             spawnFood();
         }
@@ -374,12 +340,6 @@
             document.getElementById('final-score').innerText = `FINAL SCORE: ${score}`;
         }
 
-                // Pre-allocate math vectors outside the loop to prevent "GC Thrashing" (Stuttering)
-        const _tempVec1 = new THREE.Vector3();
-        const _tempVec2 = new THREE.Vector3();
-        const _headNormal = new THREE.Vector3();
-        const _desiredUp = new THREE.Vector3();
-
         function animate(currentTime) {
             requestAnimationFrame(animate);
             if (!isGameOver) {
@@ -387,7 +347,6 @@
                     document.getElementById('pause-ui').style.display = 'none';
                     if (currentTime - lastStepTime >= currentMoveInterval) { performMovementStep(); lastStepTime = currentTime; }
 
-                    // DRAG LOGIC
                     visualSnakePositions[0].lerp(snakePositions[0], 0.3);
                     for (let i = 1; i < visualSnakePositions.length; i++) {
                         const dragFactor = 0.15 / (1 + (i * 0.05)); 
@@ -397,7 +356,6 @@
                         visualSnakePositions[visualSnakePositions.length-1].lerp(snakePositions[snakePositions.length-1], 0.1);
                     }
 
-                    // UPDATE MESHES
                     if (snakeMeshes.length > 0) {
                         for (let i = 0; i < snakeMeshes.length; i++) {
                             const mesh = snakeMeshes[i];
@@ -412,7 +370,6 @@
                             }
                             mesh.up.copy(pos).normalize();
 
-                            // Handle Turbulence/Pulse
                             if (i > 0) {
                                 const time = currentTime * 0.005;
                                 const turbulence = isWPressed ? 0.05 : 0.02;
@@ -432,7 +389,6 @@
                         }
                         visualHeadPos.lerp(snakeMeshes[0].position, 0.1);
 
-                        // Camera Logic
                         _v1.copy(visualHeadPos).normalize().multiplyScalar(18);
                         camera.position.lerp(_v1, 0.05);
 
@@ -449,9 +405,8 @@
                         camera.up.copy(currentCameraUp);
                         camera.lookAt(visualHeadPos);
 
-                        // Move Light to Head
                         _v2.copy(visualHeadPos).multiplyScalar(2);
-                        light.position.copy(_v2);
+                        mainLight.position.copy(_v2);
                     }
                 } else { document.getElementById('pause-ui').style.display = 'block'; }
             }
