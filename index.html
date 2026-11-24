@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kevin's Existential Crisis: The Web Void</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #0a0a1a;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            color: white;
+            font-family: 'Georgia', serif;
+        }
+        canvas {
+            border: 2px solid #333;
+            background-color: #000;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="gameCanvas" width="600" height="400"></canvas>
+
+    <script>
+        // 1. Setup
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // 2. Variables: The State of Being
+        let snake = [{x: 300, y: 200}]; 
+        let sparkSize = 10;
+        let speed = 10; 
+
+        // The Timekeepers
+        let lastUpdateTime = 0;
+        let moveInterval = 100; 
+        let direction = { x: 0, y: 0 }; 
+        let food = {x: 100, y: 100}; 
+
+        // Input Buffering: The Queue of Intent
+        let inputQueue = [];
+
+        // Obstacles (The Monoliths)
+        let obstacles = []; 
+        const monolithCount = 4; 
+
+        // Mortality
+        let isGameOver = false;
+
+        // 3. Event Listeners
+        window.addEventListener('keydown', (e) => {
+            if (isGameOver && (e.key === ' ' || e.key === 'Enter')) {
+                resetGame();
+                return;
+            }
+
+            // Map keys to direction vectors
+            let newDir = null;
+            if (e.key === 'ArrowUp' || e.key === 'w')    newDir = { x: 0, y: -speed };
+            if (e.key === 'ArrowDown' || e.key === 's')  newDir = { x: 0, y: speed };
+            if (e.key === 'ArrowLeft' || e.key === 'a')  newDir = { x: -speed, y: 0 };
+            if (e.key === 'ArrowRight' || e.key === 'd') newDir = { x: speed, y: 0 };
+
+            if (newDir) {
+                // Prevent 180-degree turns within the queue
+                // We check against the last direction in the queue, or the current direction if queue is empty
+                const lastDir = inputQueue.length > 0 ? inputQueue[inputQueue.length - 1] : direction;
+
+                const isOpposite = (newDir.x !== 0 && lastDir.x !== 0 && (newDir.x === -lastDir.x)) ||
+                                   (newDir.y !== 0 && lastDir.y !== 0 && (newDir.y === -lastDir.y));
+
+                if (!isOpposite) {
+                    inputQueue.push(newDir);
+                }
+            }
+        });
+
+        // Helper: Check if a position is safe
+        function isValidPosition(x, y) {
+            const hitObstacle = obstacles.some(obs => obs.x === x && obs.y === y);
+            const hitSnake = snake.some(seg => seg.x === x && seg.y === y);
+            return !hitObstacle && !hitSnake;
+        }
+
+        function generateObstacles() {
+            obstacles = [];
+            // We want a set number of "Patterns" rather than individual segments
+            const patternCount = 5; 
+
+            for (let i = 0; i < patternCount; i++) {
+                // 1. Determine the type of pattern: Vertical, Horizontal, or a "L-Shape"
+                const patternType = Math.floor(Math.random() * 3); 
+
+                // 2. Pick a starting point on one side of the screen (Left or Top)
+                // We keep them away from the center (300, 200) to avoid instant death
+                let startX = Math.floor(Math.random() * (canvas.width / 2 / sparkSize)) * sparkSize;
+                let startY = Math.floor(Math.random() * (canvas.height / sparkSize)) * sparkSize;
+
+                // Ensure we aren't spawning right on the snake's start
+                if (Math.abs(startX - 300) < 40 && Math.abs(startY - 200) < 40) {
+                    startX += 100; 
+                }
+
+                // 3. Define the length and direction of the monolith
+                // Longer monoliths: 6 to 12 units long
+                const length = Math.floor(Math.random() * 6) + 6; 
+
+                let patternSegments = [];
+
+                if (patternType === 0) { // Vertical Monolith
+                    for (let j = 0; j < length; j++) {
+                        patternSegments.push({ x: startX, y: startY + (j * sparkSize) });
+                    }
+                } else if (patternType === 1) { // Horizontal Monolith
+                    for (let j = 0; j < length; j++) {
+                        patternSegments.push({ x: startX + (j * sparkSize), y: startY });
+                    }
+                } else { // "The Corner" (L-Shape)
+                    for (let j = 0; j < Math.floor(length/2); j++) {
+                        patternSegments.push({ x: startX + (j * sparkSize), y: startY });
+                    }
+                    for (let j = 1; j < Math.ceil(length/2); j++) {
+                        patternSegments.push({ x: startX + (Math.floor(length/2) * sparkSize), y: startY + (j * sparkSize) });
+                    }
+                }
+
+                // 4. Add the original segments AND their mirrored counterparts
+                patternSegments.forEach(seg => {
+                    // Segment 1: The Original
+                    obstacles.push({ x: seg.x, y: seg.y });
+
+                    // Segment 2: The Mirrored Reflection
+                    // We mirror across the vertical center: (Width - X - SparkSize)
+                    const mirroredX = canvas.width - seg.x - sparkSize;
+                    obstacles.push({ x: mirroredX, y: seg.y });
+                });
+            }
+
+            // Final safety: remove any obstacles that might have spawned on the starting point
+            obstacles = obstacles.filter(obs => obs.x !== 300 || obs.y !== 200);
+        }
+
+        function resetGame() {
+            snake = [{x: 300, y: 200}];
+            direction = { x: 0, y: 0 };
+            inputQueue = []; // Clear inputs on reset
+            isGameOver = false;
+            lastUpdateTime = 0;
+            generateObstacles(); 
+
+            do {
+                food.x = Math.floor(Math.random() * (canvas.width / sparkSize)) * sparkSize;
+                food.y = Math.floor(Math.random() * (canvas.height / sparkSize)) * sparkSize;
+            } while (!isValidPosition(food.x, food.y));
+        }
+
+        // 4. The Game Loop
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (isGameOver) {
+                ctx.fillStyle = "white";
+                ctx.textAlign = "center";
+                ctx.font = "30px Georgia";
+                ctx.fillText("THE VOID CONSUMES ALL", canvas.width / 2, canvas.height / 2);
+                ctx.font = "16px Georgia";
+                ctx.fillText("Press Space to seek meaning again", canvas.width / 2, canvas.height / 2 + 40);
+            } else {
+                // 1. Draw Obstacles
+                ctx.fillStyle = "#333"; 
+                obstacles.forEach(obs => {
+                    ctx.fillRect(obs.x, obs.y, sparkSize, sparkSize);
+                    ctx.strokeStyle = "#444";
+                    ctx.strokeRect(obs.x, obs.y, sparkSize, sparkSize);
+                });
+
+                // 2. Draw Food
+                ctx.fillStyle = "red";
+                ctx.fillRect(food.x, food.y, sparkSize, sparkSize);
+
+                // 3. The Pulse (Movement & Input Consumption)
+                let currentTime = Date.now();
+                if (currentTime - lastUpdateTime >= moveInterval) {
+
+                    // CONSUME INPUT: If there's something in the queue, use it
+                    if (inputQueue.length > 0) {
+                        direction = inputQueue.shift();
+                    }
+
+                    if (direction.x !== 0 || direction.y !== 0) {
+                        let newX = snake[0].x + direction.x;
+                        let newY = snake[0].y + direction.y;
+
+                        // Transcendence (Wrap-around)
+                        if (newX < 0) newX = canvas.width - sparkSize;
+                        else if (newX >= canvas.width) newX = 0;
+
+                        if (newY < 0) newY = canvas.height - sparkSize;
+                        else if (newY >= canvas.height) newY = 0;
+
+                        const newHead = { x: newX, y: newY };
+
+                        // Collision Checks
+                        const hitObstacle = obstacles.some(obs => obs.x === newHead.x && obs.y === newHead.y);
+                        const hitSelf = snake.some(segment => segment.x === newHead.x && segment.y === newHead.y);
+
+                        if (hitObstacle || hitSelf) {
+                            isGameOver = true;
+                        } else {
+                            // Check Food Collision
+                            if (newHead.x === food.x && newHead.y === food.y) {
+                                snake.unshift(newHead);
+                                do {
+                                    food.x = Math.floor(Math.random() * (canvas.width / sparkSize)) * sparkSize;
+                                    food.y = Math.floor(Math.random() * (canvas.height / sparkSize)) * sparkSize;
+                                } while (!isValidPosition(food.x, food.y));
+                            } else {
+                                snake.unshift(newHead);
+                                snake.pop();
+                            }
+                        }
+                    }
+                    lastUpdateTime = currentTime;
+                }
+
+                // 4. Draw the Snake
+                snake.forEach(segment => {
+                    ctx.fillStyle = "#00ffaa";
+                    ctx.fillRect(segment.x, segment.y, sparkSize, sparkSize);
+                });
+            }
+
+            requestAnimationFrame(draw);
+        }
+
+        // 5. Start
+        resetGame(); 
+        draw();
+    </script>
+</body>
+</html>
