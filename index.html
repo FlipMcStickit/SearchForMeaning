@@ -311,17 +311,24 @@
                 targetPositions.pop();
             }
 
-            // Update rotation/orientation using the logical snakePositions
-            for (let i = 0; i < snakeMeshes.length; i++) {
-                const upVector = snakePositions[i].clone().normalize();
-                if (i < snakePositions.length - 1) {
-                    snakeMeshes[i].lookAt(snakePositions[i+1]);
-                } else {
-                    const lookTarget = snakePositions[i].clone().add(moveDir);
-                    snakeMeshes[i].lookAt(lookTarget);
-                }
-                snakeMeshes[i].up.copy(upVector);
-            }
+            // Update rotation/orientation using visual positions to prevent "lagging" rotations
+for (let i = 0; i < snakeMeshes.length; i++) {
+    const currentVisual = visualPositions[i];
+    const normal = currentVisual.clone().normalize();
+
+    // Determine where the segment is looking
+    let targetPoint;
+    if (i < snakeMeshes.length - 1) {
+        targetPoint = visualPositions[i + 1].clone();
+    } else {
+        targetPoint = currentVisual.clone().add(moveDir);
+    }
+
+    // Robust orientation: lookAt direction, then force the Up vector to be the sphere normal
+    snakeMeshes[i].lookAt(targetPoint);
+    snakeMeshes[i].up.copy(normal);
+    snakeMeshes[i].quaternion.normalize(); // Prevent scaling artifacts from floating point errors
+}
         }
 
         function endGame() {
@@ -330,12 +337,11 @@
             document.getElementById('final-score').innerText = `FINAL SCORE: ${score}`;
         }
 
-                        function animate(currentTime) {
+                                function animate(currentTime) {
             requestAnimationFrame(animate);
 
             if (!isGameOver) {
                 if (!isPaused) {
-                    // This part only runs when the game is ACTIVE
                     document.getElementById('pause-ui').style.display = 'none';
 
                     if (currentTime - lastStepTime >= MOVE_INTERVAL) {
@@ -343,34 +349,31 @@
                         lastStepTime = currentTime;
                     }
 
-                                        if (snakeMeshes.length > 0) {
+                    if (snakeMeshes.length > 0) {
                         // 1. Smoothly move the logical positions to the visual positions
                         for (let i = 0; i < snakeMeshes.length; i++) {
-                            // LERP: visual moves 20% of the way to target every frame
                             visualPositions[i].lerp(targetPositions[i], 0.2);
                             snakeMeshes[i].position.copy(visualPositions[i]);
                         }
 
-                        // 2. Camera follows the VISUAL head (the first visual position)
+                        // 2. Camera follows the VISUAL head
                         visualHeadPos.copy(visualPositions[0]); 
                         camera.position.lerp(visualHeadPos.clone().normalize().multiplyScalar(18), 0.05);
 
                         const headNormal = visualHeadPos.clone().normalize();
-                        cameraUpTarget.copy(moveDir).projectOnPlane(headNormal).normalize();
-                        smoothedUp.lerp(cameraUpTarget, 0.02); 
+                        const tempRight = new THREE.Vector3().crossVectors(headNormal, moveDir).normalize();
+                        cameraUpTarget.copy(new THREE.Vector3().crossVectors(tempRight, headNormal).normalize());
+                        smoothedUp.lerp(cameraUpTarget, 0.05); 
                         camera.up.copy(smoothedUp);
                         camera.lookAt(visualHeadPos);
 
                         light.position.copy(visualHeadPos.clone().multiplyScalar(2));
                     }
                 } else {
-                    // This part only runs when the game is PAUSED
                     document.getElementById('pause-ui').style.display = 'block';
                 }
             }
 
-            // The renderer stays outside all the IF statements so the 
-            // graphics keep drawing even when paused or game is over.
             renderer.render(scene, camera);
         }
 
