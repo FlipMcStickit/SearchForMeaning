@@ -75,7 +75,7 @@
         // --- NEW FLAME FOOD SETUP ---
 const foodGroup = new THREE.Group();
 
-// 1. Create a fuzzy texture for the flame (similar to the snake head)
+// 1. Create a fuzzy texture for the flame
 const flameCanvas = document.createElement('canvas');
 flameCanvas.width = 128; 
 flameCanvas.height = 128;
@@ -88,7 +88,6 @@ fCtx.fillStyle = grad;
 fCtx.fillRect(0, 0, 128, 128);
 const flameTexture = new THREE.CanvasTexture(flameCanvas);
 
-// 2. Create the flame layers
 const flameMat = new THREE.MeshBasicMaterial({ 
     map: flameTexture, 
     transparent: true, 
@@ -96,10 +95,11 @@ const flameMat = new THREE.MeshBasicMaterial({
     side: THREE.DoubleSide 
 });
 
-// We create "flat" planes that face the camera, making them look like glowing clouds
-for(let i = 0; i < 4; i++) {
+// Create 6 layers of planes to make a "thick" flame effect
+for(let i = 0; i < 6; i++) {
     const flameLayer = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), flameMat);
-    flameLayer.position.z = i * 0.01; // Slight offset to prevent flickering
+    // Randomly tilt them so they don't all face the same way
+    flameLayer.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
     foodGroup.add(flameLayer);
 }
 
@@ -493,13 +493,19 @@ food = { position: new THREE.Vector3(), mesh: foodGroup };
                     document.getElementById('pause-ui').style.display = 'block';
                 }
             }
-			// --- FOOD PULSE ANIMATION ---
-if (food.mesh) {
-    const time = performance.now() * 0.005;
-    const pulse = 1 + Math.sin(time) * 0.2; // Creates the pulsing size
-    food.mesh.scale.set(pulse, pulse, pulse);
-    food.mesh.rotation.y += 0.02; // Makes it spin slowly
-}
+			            // --- FOOD PULSE ANIMATION ---
+            if (food.mesh) {
+                const time = performance.now() * 0.005;
+                // Makes the flame grow and shrink
+                const pulse = 1 + Math.sin(time * 2) * 0.3; 
+                food.mesh.scale.set(pulse, pulse, pulse);
+
+                // Makes the individual flame layers spin wildly for a "flicker" effect
+                food.mesh.children.forEach((layer, i) => {
+                    layer.rotation.z += 0.05 * (i + 1);
+                    layer.rotation.x += 0.02;
+                });
+            }
             renderer.render(scene, camera);
         }
 
