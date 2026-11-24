@@ -28,13 +28,16 @@
         import * as THREE from 'three';
 
         // --- CONFIGURATION ---
-        const RADIUS = 10;
-        const STEP_DISTANCE = 0.45;
-        const MOVE_INTERVAL = 150; 
-        const SMOOTHING_SPEED = 0.15; // How fast segments follow the path (0-1)
+const RADIUS = 10;
+const STEP_DISTANCE = 0.45;
+const BASE_MOVE_INTERVAL = 150; // The normal speed
+const BOOST_MOVE_INTERVAL = 60;  // The fast speed (lower number = faster)
+const SMOOTHING_SPEED = 0.15; 
 
-        // --- STATE ---
-        let score = 0;
+// --- STATE ---
+let score = 0;
+let currentMoveInterval = BASE_MOVE_INTERVAL;
+let isWPressed = false;
         let isGameOver = false;
         let isPaused = false;
         let snakePositions = []; // Logical "grid" positions
@@ -343,7 +346,13 @@ food = { position: new THREE.Vector3(), mesh: foodGroup, particles: particles };
             spawnFood();
         }
 
-                window.addEventListener('keydown', (e) => {
+            window.addEventListener('keydown', (e) => {
+            // Handle Speed Boost (W)
+            if (e.code === 'KeyW') {
+                isWPressed = true;
+                currentMoveInterval = BOOST_MOVE_INTERVAL;
+            }
+
             // 1. Handle Pausing
             if (e.code === 'Space') {
                 isPaused = !isPaused;
@@ -358,40 +367,35 @@ food = { position: new THREE.Vector3(), mesh: foodGroup, particles: particles };
 
             let newDir = moveDir.clone();
 
-            // Determine intended direction based on input
+            // Updated Controls: A/D for left/right, W/S for up/down
             if (e.key === 'a' || e.key === 'ArrowLeft') newDir.copy(rightVec);
             else if (e.key === 'd' || e.key === 'ArrowRight') newDir.copy(rightVec.clone().negate());
             else if (e.key === 'w' || e.key === 'ArrowUp') newDir.copy(upRelativeVec);
             else if (e.key === 's' || e.key === 'ArrowDown') newDir.copy(upRelativeVec.clone().negate());
-            else return; // Exit if key isn't a movement key
+            else return; 
 
-            // --- THE FIX: STRICT DIRECTIONAL VALIDATION ---
-
-            // A: Check against the direction we are currently moving
             if (newDir.dot(moveDir) < -0.5) return;
 
-            // B: Check against the direction we are ABOUT to move (the last item in queue)
-            // This prevents the "double tap" from adding two opposite turns in a row.
             if (inputQueue.length > 0) {
                 const lastQueuedDir = inputQueue[inputQueue.length - 1];
-                if (newDir.dot(lastQueuedDir) < -0.5) {
-                    // If this turn is a reversal of the turn we just queued, 
-                    // ignore it entirely to prevent the 180-degree "crash".
-                    return; 
-                }
+                if (newDir.dot(lastQueuedDir) < -0.5) return; 
             }
 
             newDir.projectOnPlane(currentPos);
             newDir.normalize();
 
-            // Final check: is this direction actually different from what we're doing?
-            // This prevents flooding the queue with the same direction.
             if (newDir.dot(moveDir) > 0.99 && inputQueue.length === 0) return;
 
             inputQueue.push(newDir.clone());
-
-            // Keep queue small to ensure responsiveness and prevent "stale" turns
             if(inputQueue.length > 2) inputQueue.shift();
+        });
+
+        // NEW: We need a separate listener for 'keyup' to know when the player lets go of W
+        window.addEventListener('keyup', (e) => {
+            if (e.code === 'KeyW') {
+                isWPressed = false;
+                currentMoveInterval = BASE_MOVE_INTERVAL;
+            }
         });
 
         function performMovementStep() {
@@ -478,7 +482,7 @@ food = { position: new THREE.Vector3(), mesh: foodGroup, particles: particles };
             if (!isGameOver) {
                 if (!isPaused) {
                     document.getElementById('pause-ui').style.display = 'none';
-                    if (currentTime - lastStepTime >= MOVE_INTERVAL) {
+                    if (currentTime - lastStepTime >= currentMoveInterval) {
                         performMovementStep();
                         lastStepTime = currentTime;
                     }
