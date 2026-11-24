@@ -41,6 +41,8 @@
         let food = { position: new THREE.Vector3(), mesh: null };
         let obstacles = [];
         let visualHeadPos = new THREE.Vector3(RADIUS, 0, 0);
+        let smoothedUp = new THREE.Vector3(0, 1, 0); 
+        const cameraUpTarget = new THREE.Vector3();
 
         // --- THREE.JS SETUP ---
         const scene = new THREE.Scene();
@@ -285,10 +287,26 @@
                     performMovementStep();
                     lastStepTime = currentTime;
                 }
-                if (snakeMeshes.length > 0) {
+                                if (snakeMeshes.length > 0) {
                     visualHeadPos.lerp(snakeMeshes[0].position, 0.1);
                     camera.position.lerp(visualHeadPos.clone().normalize().multiplyScalar(18), 0.05);
+
+                    // --- NEW CAMERA ORIENTATION LOGIC ---
+                    // 1. Get the 'Normal' (the direction pointing out from the sphere at the head)
+                    const headNormal = visualHeadPos.clone().normalize();
+
+                    // 2. The 'Target Up' is the snake's movement direction, 
+                    // but projected so it's perfectly flat against the sphere surface
+                    cameraUpTarget.copy(moveDir).projectOnPlane(headNormal).normalize();
+
+                    // 3. Smoothly transition the camera's 'up' vector so it doesn't snap
+                    smoothedUp.lerp(cameraUpTarget, 0.1);
+
+                    // 4. Apply the up vector and look at the head
+                    camera.up.copy(smoothedUp);
                     camera.lookAt(visualHeadPos);
+                    // -------------------------------------
+
                     light.position.copy(visualHeadPos.clone().multiplyScalar(2));
                 }
             }
