@@ -2,19 +2,19 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Snake: Spherical Odyssey - V25 FULL STABLE</title>
+    <title>Snake: Spherical Odyssey - V26 SMOOTH</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; }
         #ui { position: absolute; top: 20px; width: 100%; text-align: center; color: #00ffaa; pointer-events: none; text-shadow: 0 0 10px #00ffaa; }
         #game-over { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; text-align: center; display: none; background: rgba(0,0,0,0.9); padding: 40px; border: 2px solid #ff4444; border-radius: 15px; z-index: 10; }
         button { background: #00ffaa; border: none; padding: 10px 20px; font-weight: bold; cursor: pointer; margin-top: 20px; }
-		#pause-ui { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 3em; display: none; pointer-events: none; }
+        #pause-ui { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 3em; display: none; pointer-events: none; }
     </style>
 </head>
 <body>
     <div id="ui"><h1 id="score">SCORE: 0</h1></div>
     <div id="pause-ui">PAUSED</div>
-	<div id="game-over">
+    <div id="game-over">
         <h1 style="color: #ff4444;">VOID CONSUMED YOU</h1>
         <p id="final-score"></p>
         <button onclick="location.reload()">RESTART</button>
@@ -31,27 +31,25 @@
         const RADIUS = 10;
         const STEP_DISTANCE = 0.45;
         const MOVE_INTERVAL = 150; 
+        const SMOOTHING_SPEED = 0.15; // How fast segments follow the path (0-1)
 
         // --- STATE ---
         let score = 0;
         let isGameOver = false;
-		let isPaused = false;
-        let snakePositions = []; 
-        let snakeMeshes = [];
-		let visualPositions = []; // Stores the smoothed positions for rendering
-        let targetPositions = []; // Stores the logical positions for collision/logic
+        let isPaused = false;
+        let snakePositions = []; // Logical "grid" positions
+        let snakeMeshes = [];    // Visual meshes
         let moveDir = new THREE.Vector3(0, 1, 0);
         let inputQueue = []; 
         let lastStepTime = 0;
         let food = { position: new THREE.Vector3(), mesh: null };
         let obstacles = [];
-        // --- UPDATED STATE FOR CAMERA ---
-let visualHeadPos = new THREE.Vector3(RADIUS, 0, 0);
-let smoothedUp = new THREE.Vector3(0, 1, 0);
-let cameraTargetPos = new THREE.Vector3(); // The smooth point the camera looks at
-const CAMERA_DISTANCE = 18;
-const CAMERA_LERP_SPEED = 0.05;
-const CAMERA_UP_LERP_SPEED = 0.05;
+
+        // Smoothing Helpers
+        let visualHeadPos = new THREE.Vector3(RADIUS, 0, 0);
+        let visualSnakePositions = []; // Smoothed positions for rendering
+        let cameraTargetUp = new THREE.Vector3(0, 1, 0);
+        let currentCameraUp = new THREE.Vector3(0, 1, 0);
 
         // --- THREE.JS SETUP ---
         const scene = new THREE.Scene();
@@ -74,7 +72,6 @@ const CAMERA_UP_LERP_SPEED = 0.05;
         const planet = new THREE.Mesh(new THREE.SphereGeometry(RADIUS, 48, 48), new THREE.MeshPhongMaterial({ color: 0x111122, wireframe: true }));
         scene.add(planet);
 
-        // --- INITIALIZE FOOD MESH ---
         const foodGeo = new THREE.SphereGeometry(0.5, 16, 16);
         const foodMat = new THREE.MeshPhongMaterial({ color: 0xff00ff, emissive: 0xff00ff, emissiveIntensity: 0.5 });
         const foodMesh = new THREE.Mesh(foodGeo, foodMat);
@@ -104,54 +101,31 @@ const CAMERA_UP_LERP_SPEED = 0.05;
 
             while (!validSpawn && attempts < MAX_ATTEMPTS) {
                 attempts++;
-                // Uniform distribution on sphere
                 const phi = Math.acos(2 * Math.random() - 1); 
                 const theta = Math.random() * Math.PI * 2;
-
                 newFoodPos.set(
                     RADIUS * Math.sin(phi) * Math.cos(theta),
                     RADIUS * Math.sin(phi) * Math.sin(theta),
                     RADIUS * Math.cos(phi)
                 );
 
-                let collisionWithObstacle = false;
-                for (let i = 0; i < obstacles.length; i++) {
-                    if (newFoodPos.distanceTo(obstacles[i].position) < 1.5) {
-                        collisionWithObstacle = true;
-                        break;
-                    }
-                }
-
-                let collisionWithSnake = false;
-                for (let i = 0; i < snakePositions.length; i++) {
-                    if (newFoodPos.distanceTo(snakePositions[i]) < 1.5) {
-                        collisionWithSnake = true;
-                        break;
-                    }
-                }
-
-                if (!collisionWithObstacle && !collisionWithSnake) {
-                    validSpawn = true;
-                }
+                let collision = false;
+                for (let obs of obstacles) if (newFoodPos.distanceTo(obs.position) < 1.5) collision = true;
+                for (let pos of snakePositions) if (newFoodPos.distanceTo(pos) < 1.5) collision = true;
+                if (!collision) validSpawn = true;
             }
-
             food.position.copy(newFoodPos);
             food.mesh.position.copy(newFoodPos);
         }
 
-                function spawnObstacle() {
+        function spawnObstacle() {
             const obs = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 0.7), new THREE.MeshPhongMaterial({ color: 0x444444 }));
-
             let validSpawn = false;
             let attempts = 0;
-            const MAX_ATTEMPTS = 50; // Prevent infinite loops if something goes wrong
-            const SAFE_DISTANCE = 4.0; // How far from the start the player must be
-            const startPos = snakePositions[0]; // The snake's starting position
+            const startPos = snakePositions[0];
 
-            while (!validSpawn && attempts < MAX_ATTEMPTS) {
+            while (!validSpawn && attempts < 50) {
                 attempts++;
-
-                // 1. Pick a random spot on the sphere (same logic as food)
                 const phi = Math.random() * Math.PI; 
                 const theta = Math.random() * Math.PI * 2;
                 const potentialPos = new THREE.Vector3(
@@ -159,34 +133,22 @@ const CAMERA_UP_LERP_SPEED = 0.05;
                     RADIUS * Math.sin(phi) * Math.sin(theta),
                     RADIUS * Math.cos(phi)
                 );
-
-                // 2. Check if this spot is far enough away from the snake's start
-                if (potentialPos.distanceTo(startPos) > SAFE_DISTANCE) {
+                if (potentialPos.distanceTo(startPos) > 4.0) {
                     validSpawn = true;
                     obs.position.copy(potentialPos);
                 }
             }
-
-            // Only add to scene if we found a valid spot
-            if (validSpawn) {
-                scene.add(obs);
-                obstacles.push(obs);
-            }
+            if (validSpawn) { scene.add(obs); obstacles.push(obs); }
         }
 
         function initGame() {
-            // Reset Meshes
             snakeMeshes.forEach(m => scene.remove(m));
             snakeMeshes = [];
             obstacles.forEach(o => scene.remove(o));
             obstacles = [];
 
-                        // Reset State
-            const startPos = new THREE.Vector3(RADIUS, 0, 0);
-            snakePositions = [startPos.clone()];
-            targetPositions = [startPos.clone()];
-            visualPositions = [startPos.clone()];
-
+            snakePositions = [new THREE.Vector3(RADIUS, 0, 0)];
+            visualSnakePositions = [new THREE.Vector3(RADIUS, 0, 0)];
             const head = createHead();
             snakeMeshes = [head];
             scene.add(head);
@@ -204,11 +166,11 @@ const CAMERA_UP_LERP_SPEED = 0.05;
             spawnFood();
         }
 
-         window.addEventListener('keydown', (e) => {
-            // 1. Handle Pausing first
+                window.addEventListener('keydown', (e) => {
+            // 1. Handle Pausing
             if (e.code === 'Space') {
-                isPaused = !isPaused; // This flips true to false, or false to true
-                return; // Exit the function so pressing space doesn't trigger a move
+                isPaused = !isPaused;
+                return;
             }
 
             if (isGameOver || isPaused) return;
@@ -219,32 +181,44 @@ const CAMERA_UP_LERP_SPEED = 0.05;
 
             let newDir = moveDir.clone();
 
+            // Determine intended direction based on input
             if (e.key === 'a' || e.key === 'ArrowLeft') newDir.copy(rightVec);
             else if (e.key === 'd' || e.key === 'ArrowRight') newDir.copy(rightVec.clone().negate());
             else if (e.key === 'w' || e.key === 'ArrowUp') newDir.copy(upRelativeVec);
             else if (e.key === 's' || e.key === 'ArrowDown') newDir.copy(upRelativeVec.clone().negate());
+            else return; // Exit if key isn't a movement key
 
+            // --- THE FIX: STRICT DIRECTIONAL VALIDATION ---
+
+            // A: Check against the direction we are currently moving
             if (newDir.dot(moveDir) < -0.5) return;
+
+            // B: Check against the direction we are ABOUT to move (the last item in queue)
+            // This prevents the "double tap" from adding two opposite turns in a row.
+            if (inputQueue.length > 0) {
+                const lastQueuedDir = inputQueue[inputQueue.length - 1];
+                if (newDir.dot(lastQueuedDir) < -0.5) {
+                    // If this turn is a reversal of the turn we just queued, 
+                    // ignore it entirely to prevent the 180-degree "crash".
+                    return; 
+                }
+            }
 
             newDir.projectOnPlane(currentPos);
             newDir.normalize();
 
+            // Final check: is this direction actually different from what we're doing?
+            // This prevents flooding the queue with the same direction.
+            if (newDir.dot(moveDir) > 0.99 && inputQueue.length === 0) return;
+
             inputQueue.push(newDir.clone());
-            if(inputQueue.length > 3) inputQueue.shift();
+
+            // Keep queue small to ensure responsiveness and prevent "stale" turns
+            if(inputQueue.length > 2) inputQueue.shift();
         });
 
-        function closestPointOnSegment(A, B, P) {
-            const AB = new THREE.Vector3().subVectors(B, A);
-            const AP = new THREE.Vector3().subVectors(P, A);
-            let t = AP.dot(AB) / AB.dot(AB);
-            t = Math.max(0, Math.min(1, t)); 
-            return new THREE.Vector3().addVectors(A, AB.multiplyScalar(t));
-        }
-
         function performMovementStep() {
-            if (inputQueue.length > 0) {
-                moveDir.copy(inputQueue.shift());
-            }
+            if (inputQueue.length > 0) moveDir.copy(inputQueue.shift());
 
             const currentPos = snakePositions[0].clone();
             const tangentDir = moveDir.clone().normalize();
@@ -255,16 +229,13 @@ const CAMERA_UP_LERP_SPEED = 0.05;
 
             moveDir.copy(newPos.clone().sub(currentPos).normalize());
 
-            // 1. SWEEP COLLISION (Self)
+                        // 1. SELF COLLISION (With a safety buffer for turns)
             let collisionDetected = false;
-            const collisionRadius = 0.4;
+            const collisionRadius = 0.6; 
 
-            for (let i = 1; i < snakePositions.length; i++) {
-                const bodySegmentPos = snakePositions[i];
-                if (i === 1) continue; 
-
-                const closestPointOnPath = closestPointOnSegment(currentPos, newPos, bodySegmentPos);
-                if (closestPointOnPath.distanceTo(bodySegmentPos) < collisionRadius) {
+            // We skip the first 4 segments (i=1,2,3,4) to allow for sharp turns
+            for (let i = 5; i < snakePositions.length; i++) {
+                if (newPos.distanceTo(snakePositions[i]) < collisionRadius) {
                     collisionDetected = true;
                     break;
                 }
@@ -280,30 +251,32 @@ const CAMERA_UP_LERP_SPEED = 0.05;
                 }
             }
 
+            // 3. HANDLE COLLISION OR MOVEMENT
             if (collisionDetected) {
                 endGame();
                 return;
             }
 
-                                    // 3. EATING & POSITION UPDATE
+            // Check for eating food
             const eating = newPos.distanceTo(food.position) < 1.0;
             if (eating) {
                 score += 10;
                 document.getElementById('score').innerText = `SCORE: ${score}`;
                 spawnFood();
             } else {
-                // Remove the last element from all logic/visual arrays
                 snakePositions.pop();
-                targetPositions.pop();
-                visualPositions.pop();
             }
 
-            // Add the new position to the front of all arrays
+            // Finalize the new position
             snakePositions.unshift(newPos.clone());
-            targetPositions.unshift(newPos.clone());
-            visualPositions.unshift(newPos.clone());
 
-            // 4. MESH SYNC (Managing the number of meshes)
+            // Ensure visual array matches logical array length
+            while (visualSnakePositions.length < snakePositions.length) {
+                visualSnakePositions.push(snakePositions[visualSnakePositions.length-1].clone());
+            }
+            if (visualSnakePositions.length > snakePositions.length) visualSnakePositions.pop();
+
+            // Sync Meshes
             while (snakeMeshes.length < snakePositions.length) {
                 const m = snakeMeshes.length === 0 ? createHead() : createSegment();
                 snakeMeshes.push(m);
@@ -311,28 +284,7 @@ const CAMERA_UP_LERP_SPEED = 0.05;
             }
             while (snakeMeshes.length > snakePositions.length) {
                 scene.remove(snakeMeshes.pop());
-                visualPositions.pop();
-                targetPositions.pop();
             }
-
-            // Update rotation/orientation using visual positions to prevent "lagging" rotations
-for (let i = 0; i < snakeMeshes.length; i++) {
-    const currentVisual = visualPositions[i];
-    const normal = currentVisual.clone().normalize();
-
-    // Determine where the segment is looking
-    let targetPoint;
-    if (i < snakeMeshes.length - 1) {
-        targetPoint = visualPositions[i + 1].clone();
-    } else {
-        targetPoint = currentVisual.clone().add(moveDir);
-    }
-
-    // Robust orientation: lookAt direction, then force the Up vector to be the sphere normal
-    snakeMeshes[i].lookAt(targetPoint);
-    snakeMeshes[i].up.copy(normal);
-    snakeMeshes[i].quaternion.normalize(); // Prevent scaling artifacts from floating point errors
-}
         }
 
         function endGame() {
@@ -341,55 +293,68 @@ for (let i = 0; i < snakeMeshes.length; i++) {
             document.getElementById('final-score').innerText = `FINAL SCORE: ${score}`;
         }
 
-                        function animate(currentTime) {
-    requestAnimationFrame(animate);
+        function animate(currentTime) {
+            requestAnimationFrame(animate);
 
-    if (!isGameOver) {
-        if (!isPaused) {
-            document.getElementById('pause-ui').style.display = 'none';
+            if (!isGameOver) {
+                if (!isPaused) {
+                    document.getElementById('pause-ui').style.display = 'none';
+                    if (currentTime - lastStepTime >= MOVE_INTERVAL) {
+                        performMovementStep();
+                        lastStepTime = currentTime;
+                    }
 
-            if (currentTime - lastStepTime >= MOVE_INTERVAL) {
-                performMovementStep();
-                lastStepTime = currentTime;
-            }
+                    // 1. SMOOTH THE SNAKE PATH
+                    // We lerp the visual positions toward the logical grid positions
+                    for (let i = 0; i < snakePositions.length; i++) {
+                        visualSnakePositions[i].lerp(snakePositions[i], SMOOTHING_SPEED);
+                    }
 
-            if (snakeMeshes.length > 0) {
-                // 1. Smoothly move the snake segments
-                for (let i = 0; i < snakeMeshes.length; i++) {
-                    visualPositions[i].lerp(targetPositions[i], 0.2);
-                    snakeMeshes[i].position.copy(visualPositions[i]);
+                    // 2. UPDATE MESHES (Visual)
+                    if (snakeMeshes.length > 0) {
+                        for (let i = 0; i < snakeMeshes.length; i++) {
+                            const mesh = snakeMeshes[i];
+                            const pos = visualSnakePositions[i];
+                            mesh.position.copy(pos);
+
+                            // Orientation: Look at the next visual segment
+                            if (i < snakeMeshes.length - 1) {
+                                mesh.lookAt(visualSnakePositions[i+1]);
+                            } else {
+                                const lookTarget = pos.clone().add(moveDir);
+                                mesh.lookAt(lookTarget);
+                            }
+                            // Keep the head upright relative to the sphere surface
+                            mesh.up.copy(pos.clone().normalize());
+                        }
+
+                        // 3. SMOOTH CAMERA
+                        visualHeadPos.lerp(snakeMeshes[0].position, 0.1);
+                        camera.position.lerp(visualHeadPos.clone().normalize().multiplyScalar(18), 0.05);
+
+                        // Stable Camera Up: Calculate where Up should be, then lerp it
+                        const headNormal = visualHeadPos.clone().normalize();
+                        const desiredUp = moveDir.clone().projectOnPlane(headNormal).normalize();
+                        // If the desiredUp is too close to headNormal, fallback to a stable axis
+                        if (Math.abs(desiredUp.dot(headNormal)) > 0.95) {
+                            cameraTargetUp.set(0, 1, 0).projectOnPlane(headNormal).normalize();
+                        } else {
+                            cameraTargetUp.copy(desiredUp);
+                        }
+
+                        currentCameraUp.lerp(cameraTargetUp, 0.05);
+                        camera.up.copy(currentCameraUp);
+                        camera.lookAt(visualHeadPos);
+
+                        light.position.copy(visualHeadPos.clone().multiplyScalar(2));
+                    }
+                } else {
+                    document.getElementById('pause-ui').style.display = 'block';
                 }
-
-                // 2. Update Camera Logic
-                const headPos = visualPositions[0];
-                const headNormal = headPos.clone().normalize();
-
-                // A. Smooth Camera Position
-                // We follow a point offset from the head along the normal
-                const idealCameraPos = headNormal.clone().multiplyScalar(CAMERA_DISTANCE);
-                camera.position.lerp(idealCameraPos, CAMERA_LERP_SPEED);
-
-                // B. Smooth Camera Orientation (Up Vector)
-                // To prevent jitter, we derive 'Up' from the smoothed head normal
-                // This ensures the camera rotates relative to the sphere's surface
-                smoothedUp.lerp(headNormal, CAMERA_UP_LERP_SPEED);
-                camera.up.copy(smoothedUp);
-
-                // C. Smooth Camera LookAt (Target)
-                // We lerp the target point to the head to prevent 'snapping' during turns
-                cameraTargetPos.lerp(headPos, CAMERA_LERP_SPEED);
-                camera.lookAt(cameraTargetPos);
-
-                // 3. Light Follow
-                light.position.copy(headPos.clone().multiplyScalar(2));
             }
-        } else {
-            document.getElementById('pause-ui').style.display = 'block';
-        }
-    }
 
-    renderer.render(scene, camera);
-}
+            renderer.render(scene, camera);
+        }
 
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
