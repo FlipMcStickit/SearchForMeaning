@@ -72,11 +72,39 @@
         const planet = new THREE.Mesh(new THREE.SphereGeometry(RADIUS, 48, 48), new THREE.MeshPhongMaterial({ color: 0x111122, wireframe: true }));
         scene.add(planet);
 
-        const foodGeo = new THREE.SphereGeometry(0.5, 16, 16);
-        const foodMat = new THREE.MeshPhongMaterial({ color: 0xff00ff, emissive: 0xff00ff, emissiveIntensity: 0.5 });
-        const foodMesh = new THREE.Mesh(foodGeo, foodMat);
-        scene.add(foodMesh);
-        food = { position: new THREE.Vector3(), mesh: foodMesh };
+        // --- NEW FLAME FOOD SETUP ---
+const foodGroup = new THREE.Group();
+
+// 1. Create a fuzzy texture for the flame (similar to the snake head)
+const flameCanvas = document.createElement('canvas');
+flameCanvas.width = 128; 
+flameCanvas.height = 128;
+const fCtx = flameCanvas.getContext('2d');
+const grad = fCtx.createRadialGradient(64, 64, 0, 64, 64, 64);
+grad.addColorStop(0, 'rgba(255, 0, 255, 1)'); // Magenta center
+grad.addColorStop(0.5, 'rgba(150, 0, 255, 0.5)'); // Purple mid
+grad.addColorStop(1, 'rgba(0, 0, 0, 0)'); // Transparent edge
+fCtx.fillStyle = grad;
+fCtx.fillRect(0, 0, 128, 128);
+const flameTexture = new THREE.CanvasTexture(flameCanvas);
+
+// 2. Create the flame layers
+const flameMat = new THREE.MeshBasicMaterial({ 
+    map: flameTexture, 
+    transparent: true, 
+    blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide 
+});
+
+// We create "flat" planes that face the camera, making them look like glowing clouds
+for(let i = 0; i < 4; i++) {
+    const flameLayer = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), flameMat);
+    flameLayer.position.z = i * 0.01; // Slight offset to prevent flickering
+    foodGroup.add(flameLayer);
+}
+
+scene.add(foodGroup);
+food = { position: new THREE.Vector3(), mesh: foodGroup };
 
                     function createHead() {
             const group = new THREE.Group();
@@ -465,7 +493,13 @@
                     document.getElementById('pause-ui').style.display = 'block';
                 }
             }
-
+			// --- FOOD PULSE ANIMATION ---
+if (food.mesh) {
+    const time = performance.now() * 0.005;
+    const pulse = 1 + Math.sin(time) * 0.2; // Creates the pulsing size
+    food.mesh.scale.set(pulse, pulse, pulse);
+    food.mesh.rotation.y += 0.02; // Makes it spin slowly
+}
             renderer.render(scene, camera);
         }
 
