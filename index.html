@@ -62,7 +62,7 @@
         let snakePositions = []; 
         let snakeMeshes = [];    
         let moveDir = new THREE.Vector3(0, 1, 0);
-        let inputQueue = []; 
+        let inputQueue = []; // Stores relative turn directions (e.g., "turn left") 
         let lastStepTime = 0;
         let food = { position: new THREE.Vector3(), mesh: null };
         let obstacles = [];
@@ -281,34 +281,16 @@
             if (e.code === 'Space') { isPaused = !isPaused; return; }
             if (!gameStarted || isGameOver || isPaused) return;
 
-            const currentPos = snakePositions[0].clone().normalize(); 
-            const rightVec = new THREE.Vector3().crossVectors(currentPos, moveDir).normalize();
-            const upRel = new THREE.Vector3().crossVectors(rightVec, currentPos).normalize();
-
-            let newDir = moveDir.clone();
-
-            // Using .code instead of .key fixes the Caps Lock issue
+            // We only care about A and D for turning now. 
+            // W is handled by the boost interval logic.
             if (e.code === 'KeyA' || e.code === 'ArrowLeft') {
-                newDir.copy(rightVec);
+                inputQueue.push('LEFT');
             } else if (e.code === 'KeyD' || e.code === 'ArrowRight') {
-                newDir.copy(rightVec.clone().negate());
-            } else if (e.code === 'KeyW' || e.code === 'ArrowUp') {
-                newDir.copy(upRel);
-            } else {
-                return; 
+                inputQueue.push('RIGHT');
             }
 
-            // Prevent 180-degree turns
-            if (newDir.dot(moveDir) < -0.5) return;
-            if (inputQueue.length > 0 && newDir.dot(inputQueue[inputQueue.length-1]) < -0.5) return;
-
-            newDir.projectOnPlane(currentPos); 
-            newDir.normalize();
-
-            if (newDir.dot(moveDir) > 0.99 && inputQueue.length === 0) return;
-
-            inputQueue.push(newDir.clone());
-            if(inputQueue.length > 2) inputQueue.shift();
+            // Limit queue size so input doesn't feel "laggy"
+            if (inputQueue.length > 2) inputQueue.shift();
         });
 
         window.addEventListener('keyup', (e) => {
@@ -316,29 +298,54 @@
         });
 
         function performMovementStep() {
-            if (inputQueue.length > 0) moveDir.copy(inputQueue.shift());
+            // 1. Handle Turn Buffering
+            if (inputQueue.length > 0) {
+                const turn = inputQueue.shift();
+                const surfaceNormal = snakePositions[0].clone().normalize(); 
+
+                if (turn === 'LEFT') {
+                    // Left turn: Surface Normal cross Movement direction
+                    moveDir.copy(new THREE.Vector3().crossVectors(surfaceNormal, moveDir).normalize());
+                } else if (turn === 'RIGHT') {
+                    // Right turn: Movement direction cross Surface Normal
+                    moveDir.copy(new THREE.Vector3().crossVectors(moveDir, surfaceNormal).normalize());
+                }
+
+                // Ensure the new direction is perfectly tangent to the sphere
+                moveDir.projectOnPlane(surfaceNormal).normalize();
+            }
+
+            // 2. Calculate New Position
             const currentPos = snakePositions[0].clone();
             const tangentDir = moveDir.clone().normalize();
             const newPos = currentPos.clone().add(tangentDir.multiplyScalar(STEP_DISTANCE)).normalize().multiplyScalar(RADIUS);
+
+            // Update moveDir to be the actual direction traveled
             moveDir.copy(newPos.clone().sub(currentPos).normalize());
 
+            // 3. Collision Detection
             let collision = false;
             for (let i = 6; i < snakePositions.length; i++) if (newPos.distanceTo(snakePositions[i]) < 0.3) collision = true;
             if (!collision) for (let obs of obstacles) if (newPos.distanceTo(obs.position) < 0.4) collision = true;
             if (collision) { endGame(); return; }
 
+            // 4. Food & Growth
             if (newPos.distanceTo(food.position) < 0.6) {
                 score += 10; document.getElementById('score').innerText = `SCORE: ${score}`;
                 spawnFood();
-            } else { snakePositions.pop(); }
+            } else { 
+                snakePositions.pop(); 
+            }
             snakePositions.unshift(newPos.clone());
 
+            // 5. Update Meshes
             while (snakeMeshes.length < snakePositions.length) {
                 const m = snakeMeshes.length === 0 ? createHead() : createSegment();
                 snakeMeshes.push(m); scene.add(m);
             }
             while (snakeMeshes.length > snakePositions.length) scene.remove(snakeMeshes.pop());
 
+            // 6. Update Visual Positions
             if (visualSnakePositions.length < snakePositions.length) {
                 for (let i = visualSnakePositions.length; i < snakePositions.length; i++) visualSnakePositions.push(snakePositions[i].clone());
             } else if (visualSnakePositions.length > snakePositions.length) {
@@ -455,6 +462,10 @@
             initGame();
             requestAnimationFrame(animate);
         };
+		
+        window.addEventListener('blur', () => {
+            currentMoveInterval = BASE_MOVE_INTERVAL;
+        });
     </script>
 </body>
 </html>
