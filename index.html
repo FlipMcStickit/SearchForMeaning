@@ -113,8 +113,8 @@
             ctx.arc(x, y, radius, 0, Math.PI * 2);
             ctx.fill();
         }
-        const cloudTexture = new THREE.CanvasTexture(canvas);
-        const planetMaterial = new THREE.MeshPhongMaterial({ 
+const cloudTexture = new THREE.CanvasTexture(canvas);
+cloudTexture.colorSpace = THREE.SRGBColorSpace;        const planetMaterial = new THREE.MeshPhongMaterial({ 
             map: cloudTexture,
             transparent: true, 
             opacity: 0.4,        
@@ -143,8 +143,8 @@
         gradF.addColorStop(1, 'rgba(0, 0, 0, 0)');
         ctxF.fillStyle = gradF;
         ctxF.fillRect(0, 0, 64, 64);
-        const particleTexture = new THREE.CanvasTexture(canvasF);
-
+const particleTexture = new THREE.CanvasTexture(canvasF);
+particleTexture.colorSpace = THREE.SRGBColorSpace;
         const particleCount = 25; 
         const particles = [];
         for (let i = 0; i < particleCount; i++) {
@@ -175,8 +175,8 @@
             context.fillRect(0, 0, 256, 256);
             for(let i=0; i<70; i++) drawBlob(Math.random()*256, Math.random()*256, 10+Math.random()*45, 'rgba(255, 60, 0, 0.5)'); 
             for(let i=0; i<40; i++) drawBlob(Math.random()*256, Math.random()*256, 5+Math.random()*25, 'rgba(255, 255, 180, 0.4)'); 
-            const glowTexture = new THREE.CanvasTexture(canvas);
-            const scale = 0.4; 
+const glowTexture = new THREE.CanvasTexture(canvas);
+glowTexture.colorSpace = THREE.SRGBColorSpace;            const scale = 0.4; 
             const coreMat = new THREE.MeshBasicMaterial({ map: glowTexture, transparent: true, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
             const auraMat = new THREE.MeshBasicMaterial({ map: glowTexture, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, opacity: 0.6 });
             const core = new THREE.Mesh(new THREE.SphereGeometry(0.2 * scale, 32, 32), coreMat);
