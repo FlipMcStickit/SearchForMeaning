@@ -54,31 +54,33 @@
         let cameraTargetUp = new THREE.Vector3(0, 1, 0);
         let currentCameraUp = new THREE.Vector3(0, 1, 0);
 
+        // --- PRE-ALLOCATED MATH VECTORS (Prevents Stuttering) ---
+        const _v1 = new THREE.Vector3();
+        const _v2 = new THREE.Vector3();
+        const _v3 = new THREE.Vector3();
+        const _v4 = new THREE.Vector3();
+        const _headNormal = new THREE.Vector3();
+        const _desiredUp = new THREE.Vector3();
+
         // --- THREE.JS SETUP ---
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setPixelRatio(window.devicePixelRatio); // Better resolution handling
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
 
-        // --- THE PLANET (A faint, gaseous sphere) ---
-
-        // 1. Create a soft, cloudy texture using a Canvas
+        // --- THE PLANET ---
         const canvas = document.createElement('canvas');
         canvas.width = 512; canvas.height = 512;
         const ctx = canvas.getContext('2d');
-
-        // Create a dark background
         ctx.fillStyle = '#050510';
         ctx.fillRect(0, 0, 512, 512);
-
-        // Draw some random "cloud" blobs
         for(let i = 0; i < 20; i++) {
             const x = Math.random() * 512;
             const y = Math.random() * 512;
             const radius = Math.random() * 150 + 50;
             const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
-            // Using a very dark teal/blue for the clouds
             gradient.addColorStop(0, 'rgba(0, 50, 50, 0.2)'); 
             gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
             ctx.fillStyle = gradient;
@@ -88,23 +90,26 @@
         }
         const cloudTexture = new THREE.CanvasTexture(canvas);
 
-        // 2. Create the Planet Mesh
         const planetMaterial = new THREE.MeshPhongMaterial({ 
             map: cloudTexture,
             transparent: true, 
-            opacity: 0.4,        // This ensures you can see through it!
-            side: THREE.DoubleSide // Allows you to see the "inside" of the sphere
+            opacity: 0.4,        
+            side: THREE.DoubleSide 
         });
 
         const planet = new THREE.Mesh(new THREE.SphereGeometry(RADIUS, 64, 64), planetMaterial);
         scene.add(planet);
 
-        // 3. Add a very faint starfield in the background
         const starGeo = new THREE.BufferGeometry();
         const starCoords = [];
         for(let i=0; i<1000; i++) starCoords.push((Math.random()-0.5)*400, (Math.random()-0.5)*400, (Math.random()-0.5)*400);
         starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starCoords, 3));
         scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.5 })));
+
+        scene.add(new THREE.AmbientLight(0x404040, 2));
+        // We will manage the main light dynamically in the animate loop
+        const light = new THREE.PointLight(0x00ffaa, 100, 50);
+        scene.add(light);
 
         // 4. LIGHTING (Crucial: Don't delete these!)
         scene.add(new THREE.AmbientLight(0x404040, 2));
@@ -173,9 +178,6 @@
 
         function createSegment() {
             const segmentGroup = new THREE.Group();
-
-            // --- REUSING HEAD LOGIC FOR TAIL ---
-            // We recreate the texture logic from createHead but simplified for the tail
             const canvas = document.createElement('canvas');
             canvas.width = 256; canvas.height = 256;
             const context = canvas.getContext('2d');
@@ -190,34 +192,27 @@
             }
             context.fillStyle = 'rgba(0, 0, 0, 0)'; 
             context.fillRect(0, 0, 256, 256);
-            // Use the same colors as the head (Orange/Yellow)
             for(let i=0; i<40; i++) drawBlob(Math.random()*256, Math.random()*256, 10+Math.random()*45, 'rgba(255, 60, 0, 0.5)'); 
             for(let i=0; i<20; i++) drawBlob(Math.random()*256, Math.random()*256, 5+Math.random()*25, 'rgba(255, 255, 180, 0.4)'); 
 
             const glowTexture = new THREE.CanvasTexture(canvas);
-
-            // Scale is set to 0.5 (50% of the head)
             const scale = 0.2; 
-            const coreMat = new THREE.MeshBasicMaterial({ map: glowTexture, transparent: true, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
             const auraMat = new THREE.MeshBasicMaterial({ map: glowTexture, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, opacity: 0.5 });
 
-            // Create 3 smaller layers of glow to mimic the head's structure
-            const aura1 = new THREE.Mesh(new THREE.SphereGeometry(0.4 * scale, 32, 32), auraMat);
+            // Create 3 layers of glow
+            const aura1 = new THREE.Mesh(new THREE.SphereGeometry(0.4 * scale, 16, 16), auraMat);
             aura1.scale.set(1.2, 0.8, 1.2); 
             segmentGroup.add(aura1);
 
-            const aura2 = new THREE.Mesh(new THREE.SphereGeometry(0.7 * scale, 32, 32), auraMat);
+            const aura2 = new THREE.Mesh(new THREE.SphereGeometry(0.7 * scale, 16, 16), auraMat);
             aura2.rotation.set(Math.PI / 3, Math.PI / 4, 0); 
             segmentGroup.add(aura2);
 
-            const aura3 = new THREE.Mesh(new THREE.SphereGeometry(1.0 * scale, 32, 32), auraMat);
+            const aura3 = new THREE.Mesh(new THREE.SphereGeometry(1.0 * scale, 16, 16), auraMat);
             aura3.rotation.set(0, Math.PI / 2, Math.PI / 3); 
             segmentGroup.add(aura3);
 
-            // Add a small core light
-            const glowLight = new THREE.PointLight(0xffaa00, 40, 5); 
-            segmentGroup.add(glowLight);
-
+            // REMOVED PointLight from segments to save performance
             return segmentGroup;
         }
 
@@ -396,8 +391,7 @@
                     visualSnakePositions[0].lerp(snakePositions[0], 0.3);
                     for (let i = 1; i < visualSnakePositions.length; i++) {
                         const dragFactor = 0.15 / (1 + (i * 0.05)); 
-                        const targetPos = visualSnakePositions[i - 1]; // Removed .clone()
-                        visualSnakePositions[i].lerp(targetPos, dragFactor);
+                        visualSnakePositions[i].lerp(visualSnakePositions[i - 1], dragFactor);
                     }
                     if (visualSnakePositions.length > 1) {
                         visualSnakePositions[visualSnakePositions.length-1].lerp(snakePositions[snakePositions.length-1], 0.1);
@@ -410,20 +404,22 @@
                             const pos = visualSnakePositions[i];
                             mesh.position.copy(pos);
 
-                            if (i < snakeMeshes.length - 1) mesh.lookAt(visualSnakePositions[i+1]);
-                            else {
-                                _tempVec1.copy(pos).add(moveDir); // Using reusable vector instead of clone
-                                mesh.lookAt(_tempVec1);
+                            if (i < snakeMeshes.length - 1) {
+                                mesh.lookAt(visualSnakePositions[i+1]);
+                            } else {
+                                _v1.copy(pos).add(moveDir); 
+                                mesh.lookAt(_v1);
                             }
                             mesh.up.copy(pos).normalize();
 
+                            // Handle Turbulence/Pulse
                             if (i > 0) {
                                 const time = currentTime * 0.005;
                                 const turbulence = isWPressed ? 0.05 : 0.02;
                                 const taper = Math.max(0.1, 0.4 - (i * 0.04)); 
 
                                 mesh.children.forEach((child, idx) => {
-                                    if (child.isSprite) {
+                                    if (child.isSprite || child.material.transparent) {
                                         const orbitRadius = taper; 
                                         const angle = time + idx;
                                         child.position.x = Math.cos(angle) * orbitRadius + Math.sin(time * 2 + i + idx) * turbulence;
@@ -436,9 +432,9 @@
                         }
                         visualHeadPos.lerp(snakeMeshes[0].position, 0.1);
 
-                        // Camera Logic - Optimized to use reusable vectors
-                        _tempVec1.copy(visualHeadPos).normalize().multiplyScalar(18);
-                        camera.position.lerp(_tempVec1, 0.05);
+                        // Camera Logic
+                        _v1.copy(visualHeadPos).normalize().multiplyScalar(18);
+                        camera.position.lerp(_v1, 0.05);
 
                         _headNormal.copy(visualHeadPos).normalize();
                         _desiredUp.copy(moveDir).projectOnPlane(_headNormal).normalize();
@@ -453,16 +449,17 @@
                         camera.up.copy(currentCameraUp);
                         camera.lookAt(visualHeadPos);
 
-                        _tempVec2.copy(visualHeadPos).multiplyScalar(2);
-                        light.position.copy(_tempVec2);
+                        // Move Light to Head
+                        _v2.copy(visualHeadPos).multiplyScalar(2);
+                        light.position.copy(_v2);
                     }
                 } else { document.getElementById('pause-ui').style.display = 'block'; }
             }
 
             if (food.mesh) {
                 const time = performance.now() * 0.005;
-                _tempVec1.copy(food.position).normalize();
-                food.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), _tempVec1);
+                _v1.copy(food.position).normalize();
+                food.mesh.quaternion.setFromUnitVectors(_v3.set(0, 1, 0), _v1);
 
                 food.particles.forEach((p, i) => {
                     const lifeProgress = (time * p.userData.speed + p.userData.life) % 1;
