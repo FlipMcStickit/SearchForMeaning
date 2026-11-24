@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Snake: Spherical Odyssey - Re-Projected Stable Version</title>
+    <title>Snake: Local-Space Quaternion Integration</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; }
         #ui { position: absolute; top: 20px; width: 100%; text-align: center; color: #00ffaa; pointer-events: none; text-shadow: 0 0 10px #00ffaa; }
@@ -25,29 +25,28 @@
     <script type="module">
         import * as THREE from 'three';
 
-        /**
-         * MATH CONSTANTS
-         * RADIUS: Sphere size.
-         * STEP_DISTANCE: Arc length moved per update.
-         * MOVE_SPEED: Frequency of updates.
-         */
+        // --- CONSTANTS ---
         const RADIUS = 10;
-        const STEP_DISTANCE = 0.4;
-        const MOVE_SPEED = 0.15;
+        const STEP_ANGLE = 0.15; // Rotation around Local X (Forward movement)
+        const TURN_ANGLE = 0.12; // Rotation around Local Y (Turning)
+        const TICK_RATE = 0.1;   // Seconds between steps
+        const START_POINT = new THREE.Vector3(RADIUS, 0, 0);
 
+        // --- GAME STATE ---
         let score = 0;
         let isGameOver = false;
-        let snakePositions = []; 
-        let snakeMeshes = [];    
+        let lastMoveTime = 0;
+        let turnDirection = 0; 
 
-        // moveDir: The unit tangent vector representing current velocity direction.
-        let moveDir = new THREE.Vector3(0, 1, 0);
-        let nextMoveDir = new THREE.Vector3(0, 1, 0);
+        // The Core Mathematical State
+        let headOrientation = new THREE.Quaternion(); // The integral of all local rotations
+        let snakeHistory = []; // Array of Quaternions (the path)
+        let snakeMeshes = [];
 
         let food = { position: new THREE.Vector3(), mesh: null };
         let obstacles = [];
-        let visualHeadPos = new THREE.Vector3(RADIUS, 0, 0);
 
+        // --- THREE.JS SETUP ---
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -57,196 +56,165 @@
         // Starfield
         const starGeo = new THREE.BufferGeometry();
         const starCoords = [];
-        for(let i=0; i<2000; i++) starCoords.push((Math.random()-0.5)*400, (Math.random()-0.5)*400, (Math.random()-0.5)*400);
+        for(let i=0; i<2000; i++) starCoords.push((Math.random()-0.5)*500, (Math.random()-0.5)*500, (Math.random()-0.5)*500);
         starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starCoords, 3));
         scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.7 })));
 
         scene.add(new THREE.AmbientLight(0x404040, 2));
-        const light = new THREE.PointLight(0x00ffaa, 100, 50);
+        const light = new THREE.PointLight(0x00ffaa, 50, 100);
         scene.add(light);
 
-        const planet = new THREE.Mesh(new THREE.SphereGeometry(RADIUS, 48, 48), new THREE.MeshPhongMaterial({ color: 0x111122, wireframe: true }));
+        // The Sphere Wireframe
+        const planet = new THREE.Mesh(
+            new THREE.SphereGeometry(RADIUS, 32, 32), 
+            new THREE.MeshPhongMaterial({ color: 0x111122, wireframe: true, transparent: true, opacity: 0.2 })
+        );
         scene.add(planet);
 
+        // --- FACTORIES ---
         function createHead() {
             const group = new THREE.Group();
-            const body = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.6, 0.6), new THREE.MeshPhongMaterial({ color: 0x00ffaa }));
+            const body = new THREE.Mesh(new THREE.SphereGeometry(0.6, 16, 16), new THREE.MeshPhongMaterial({ color: 0x00ffaa }));
             group.add(body);
-            const nose = new THREE.Mesh(new THREE.ConeGeometry(0.25, 0.6, 8), new THREE.MeshPhongMaterial({ color: 0xffffff }));
+            // Nose to indicate direction
+            const nose = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.8, 8), new THREE.MeshPhongMaterial({ color: 0xffffff }));
             nose.rotation.x = Math.PI / 2; 
-            nose.position.z = 0.5; 
+            nose.position.z = -0.6; 
             group.add(nose);
             return group;
         }
 
         function createSegment() {
-            return new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), new THREE.MeshPhongMaterial({ color: 0x00cc88 }));
+            return new THREE.Mesh(new THREE.SphereGeometry(0.5, 12, 12), new THREE.MeshPhongMaterial({ color: 0x008866 }));
         }
 
         function spawnFood() {
             if(food.mesh) scene.remove(food.mesh);
-            food.mesh = new THREE.Mesh(new THREE.SphereGeometry(0.4, 16, 16), new THREE.MeshPhongMaterial({ color: 0xff4444, emissive: 0xff0000 }));
-            const phi = Math.random() * Math.PI * 2;
-            const theta = Math.acos((Math.random() * 2) - 1);
-            food.position.set(RADIUS * Math.sin(theta) * Math.cos(phi), RADIUS * Math.sin(theta) * Math.sin(phi), RADIUS * Math.cos(theta));
+            food.mesh = new THREE.Mesh(new THREE.SphereGeometry(0.5, 16, 16), new THREE.MeshPhongMaterial({ color: 0xff4444, emissive: 0xff0000 }));
+
+            // Uniform random point on sphere
+            const u = Math.random();
+            const v = Math.random();
+            const theta = 2 * Math.PI * u;
+            const phi = Math.acos(2 * v - 1);
+
+            food.position.set(
+                RADIUS * Math.sin(phi) * Math.cos(theta),
+                RADIUS * Math.sin(phi) * Math.sin(theta),
+                RADIUS * Math.cos(phi)
+            );
             food.mesh.position.copy(food.position);
             scene.add(food.mesh);
         }
 
         function spawnObstacle() {
-            const obs = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 0.7), new THREE.MeshPhongMaterial({ color: 0x444444 }));
-            const phi = Math.random() * Math.PI * 2;
-            const theta = Math.acos((Math.random() * 2) - 1);
-            obs.position.set(RADIUS * Math.sin(theta) * Math.cos(phi), RADIUS * Math.sin(theta) * Math.sin(phi), RADIUS * Math.cos(theta));
+            const obs = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.2, 1.2), new THREE.MeshPhongMaterial({ color: 0x555555 }));
+            const u = Math.random();
+            const v = Math.random();
+            const theta = 2 * Math.PI * u;
+            const phi = Math.acos(2 * v - 1);
+            obs.position.set(
+                RADIUS * Math.sin(phi) * Math.cos(theta),
+                RADIUS * Math.sin(phi) * Math.sin(theta),
+                RADIUS * Math.cos(phi)
+            );
             scene.add(obs);
             obstacles.push(obs);
         }
 
+        // --- GAME LOGIC ---
         function initGame() {
+            // Reset State
+            headOrientation.set(0, 0, 0, 1); 
+            snakeHistory = [headOrientation.clone()];
             snakeMeshes.forEach(m => scene.remove(m));
             obstacles.forEach(o => scene.remove(o));
             if(food.mesh) scene.remove(food.mesh);
 
-            snakePositions = [new THREE.Vector3(RADIUS, 0, 0)];
             snakeMeshes = [createHead()];
             scene.add(snakeMeshes[0]);
 
-            obstacles = []; 
             score = 0; 
             isGameOver = false;
-
-            moveDir.set(0, 1, 0);
-            nextMoveDir.copy(moveDir);
+            turnDirection = 0;
+            obstacles = [];
 
             document.getElementById('score').innerText = "SCORE: 0";
             document.getElementById('game-over').style.display = 'none';
-            for(let i=0; i<30; i++) spawnObstacle();
+
+            for(let i=0; i<25; i++) spawnObstacle();
             spawnFood();
         }
 
         window.addEventListener('keydown', (e) => {
-            if (isGameOver) return;
-
-            const currentPos = snakePositions[0].clone().normalize(); 
-
-            // NAVIGATION LOGIC:
-            // Create a local coordinate system (Tangent Space) at the head's location.
-            const rightVec = new THREE.Vector3().crossVectors(currentPos, moveDir).normalize();
-            const upRelativeVec = new THREE.Vector3().crossVectors(rightVec, currentPos).normalize();
-
-            let requestedDir = moveDir.clone();
-
-            if (e.key === 'a' || e.key === 'ArrowLeft') {
-                requestedDir.copy(rightVec); 
-            } else if (e.key === 'd' || e.key === 'ArrowRight') {
-                requestedDir.copy(rightVec.clone().negate());
-            } else if (e.key === 'w' || e.key === 'ArrowUp') {
-                requestedDir.copy(upRelativeVec);
-            } else if (e.key === 's' || e.key === 'ArrowDown') {
-                requestedDir.copy(upRelativeVec.clone().negate());
-            }
-
-            if (requestedDir.dot(moveDir) < -0.5) return;
-
-            // Ensure input is tangent to the sphere surface
-            requestedDir.projectOnPlane(currentPos);
-            requestedDir.normalize();
-            nextMoveDir.copy(requestedDir);
+            if (e.key === 'a' || e.key === 'ArrowLeft') turnDirection = -1;
+            if (e.key === 'd' || e.key === 'ArrowRight') turnDirection = 1;
+        });
+        window.addEventListener('keyup', (e) => {
+            if (['a', 'd', 'ArrowLeft', 'ArrowRight'].includes(e.key)) turnDirection = 0;
         });
 
-        let lastMoveTime = 0;
         function update(time) {
             if (isGameOver) return;
-            if (time - lastMoveTime < MOVE_SPEED * 1000) return;
-            lastMoveTime = time;
 
-            moveDir.copy(nextMoveDir);
-            const currentPos = snakePositions[0].clone();
-            const currentNormal = currentPos.clone().normalize();
-
-            // --- STEP 1: ROTATION AXIS ---
-            // Rotation axis is perpendicular to the surface normal and the direction of travel.
-            const rotationAxis = new THREE.Vector3().crossVectors(currentNormal, moveDir).normalize();
-
-            // --- STEP 2: POSITION UPDATE ---
-            // Rotate position around the axis to move along the arc.
-            const angle = STEP_DISTANCE / RADIUS;
-            const q = new THREE.Quaternion().setFromAxisAngle(rotationAxis, angle);
-            const newPos = currentPos.clone().applyQuaternion(q);
-            newPos.normalize().multiplyScalar(RADIUS); // HARD CONSTRAINT: Keep on surface.
-
-            // --- STEP 3: DIRECTION UPDATE (THE CRITICAL FIX) ---
-            // 3a: Rotate the direction vector using the same quaternion.
-            moveDir.applyQuaternion(q);
-
-            // 3b: VECTOR RE-PROJECTION (GRAM-SCHMIDT)
-            // This is the key to preventing "Jittery Stop"/Degeneracy.
-            // We explicitly re-orthogonalize moveDir against the new surface normal.
-            const newNormal = newPos.clone().normalize();
-            moveDir.projectOnPlane(newNormal); 
-            moveDir.normalize(); // Reset to unit length on the tangent plane.
-
-            // Collision Check
-            for(let i=1; i<snakePositions.length; i++) {
-                if (newPos.distanceTo(snakePositions[i]) < 0.5) { endGame(); return; }
-            }
-            obstacles.forEach(o => { 
-                if (newPos.distanceTo(o.position) < 0.8) endGame(); 
-            });
-
-            // Food Check
-            const eating = newPos.distanceTo(food.position) < 1.2;
-            if (eating) {
-                score += 10;
-                document.getElementById('score').innerText = `SCORE: ${score}`;
-                spawnFood();
+            // 1. TURN (Apply to Head Orientation via Local Y Axis)
+            if (turnDirection !== 0) {
+                const turnQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), turnDirection * TURN_ANGLE);
+                headOrientation.multiply(turnQuat);
             }
 
-            snakePositions.unshift(newPos.clone());
-            if (!eating) snakePositions.pop();
+            // 2. MOVE (Tick-based integration)
+            if (time - lastMoveTime > TICK_RATE * 1000) {
+                lastMoveTime = time;
 
-            while (snakeMeshes.length < snakePositions.length) {
-                const m = snakeMeshes.length === 0 ? createHead() : createSegment();
-                snakeMeshes.push(m);
-                scene.add(m);
-            }
-            while (snakeMeshes.length > snakePositions.length) {
-                scene.remove(snakeMeshes.pop());
-            }
+                // Forward movement: Apply rotation around Local X Axis
+                const moveQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), STEP_ANGLE);
+                headOrientation.multiply(moveQuat);
 
-            // --- STEP 4: SEGMENT ORIENTATION (Basis Construction) ---
-            // Every segment needs a stable orthonormal basis (Right, Normal, Forward).
-            for (let i = 0; i < snakePositions.length; i++) {
-                snakeMeshes[i].position.copy(snakePositions[i]);
-                const pos = snakePositions[i];
-                const normal = pos.clone().normalize(); 
+                // Store current orientation in history
+                snakeHistory.unshift(headOrientation.clone());
 
-                let forward;
-                if (i < snakePositions.length - 1) {
-                    // For body segments, forward is the vector to the next segment.
-                    forward = snakePositions[i + 1].clone().sub(pos).normalize();
-                } else {
-                    // For the head, forward is our current moveDir.
-                    forward = moveDir.clone().projectOnPlane(normal).normalize();
-                    // Fallback to prevent singularity if direction is parallel to normal.
-                    if (forward.length() < 0.01) {
-                        const fallback = Math.abs(normal.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
-                        forward = new THREE.Vector3().crossVectors(normal, fallback).normalize();
-                    }
+                // Derive current 3D position from Quaternion
+                const headPos = START_POINT.clone().applyQuaternion(headOrientation);
+
+                // COLLISION: Obstacles
+                obstacles.forEach(o => { 
+                    if (headPos.distanceTo(o.position) < 1.5) endGame(); 
+                });
+
+                // COLLISION: Body (Self-collision)
+                for(let i=1; i < Math.min(snakeHistory.length, 15); i++) {
+                    const bodyPos = START_POINT.clone().applyQuaternion(snakeHistory[i]);
+                    if (headPos.distanceTo(bodyPos) < 0.8) endGame();
                 }
 
-                const right = new THREE.Vector3().crossVectors(normal, forward).normalize();
-                const actualForward = new THREE.Vector3().crossVectors(right, normal).normalize();
+                // COLLISION: Food
+                if (headPos.distanceTo(food.position) < 1.6) {
+                    score += 10;
+                    document.getElementById('score').innerText = `SCORE: ${score}`;
+                    spawnFood();
+                    // Growth: We don't pop from history
+                } else {
+                    if (snakeHistory.length > 1) snakeHistory.pop();
+                }
 
-                // Construct Matrix4 from Basis to generate Quaternion.
-                const targetQuat = new THREE.Quaternion();
-                const m = new THREE.Matrix4();
-                m.makeBasis(right, normal, actualForward);
-                targetQuat.setFromRotationMatrix(m);
+                // Sync Mesh Array with History Array
+                while (snakeMeshes.length < snakeHistory.length) {
+                    const m = snakeMeshes.length === 0 ? createHead() : createSegment();
+                    snakeMeshes.push(m);
+                    scene.add(m);
+                }
+                while (snakeMeshes.length > snakeHistory.length) {
+                    scene.remove(snakeMeshes.pop());
+                }
+            }
 
-                // Smooth orientation transition.
-                const lerpSpeed = (i === 0) ? 0.4 : 0.2;
-                snakeMeshes[i].quaternion.slerp(targetQuat, lerpSpeed);
+            // 3. VISUAL UPDATE (Smoothly interpolation meshes)
+            for (let i = 0; i < snakeHistory.length; i++) {
+                const q = snakeHistory[i];
+                const m = snakeMeshes[i];
+                m.position.copy(START_POINT.clone().applyQuaternion(q));
+                m.quaternion.slerp(q, 0.3); // Smooth rotation
             }
         }
 
@@ -259,13 +227,19 @@
         function animate(time) {
             requestAnimationFrame(animate);
             update(time);
+
             if (!isGameOver && snakeMeshes.length > 0) {
-                // Smooth Camera Follow
-                visualHeadPos.lerp(snakeMeshes[0].position, 0.1);
-                camera.position.lerp(visualHeadPos.clone().normalize().multiplyScalar(18), 0.05);
-                camera.lookAt(visualHeadPos);
-                light.position.copy(visualHeadPos.clone().multiplyScalar(2));
+                const headPos = snakeMeshes[0].position;
+
+                // Camera: Follow head from distance
+                const offset = headPos.clone().normalize().multiplyScalar(22);
+                camera.position.lerp(offset, 0.05);
+                camera.lookAt(headPos);
+
+                // Dynamic Lighting
+                light.position.copy(headPos.clone().multiplyScalar(2.5));
             }
+
             renderer.render(scene, camera);
         }
 
