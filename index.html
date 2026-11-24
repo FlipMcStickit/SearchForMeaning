@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Snake: Spherical Odyssey - Fixed Momentum</title>
+    <title>Snake: Spherical Odyssey - Fixed Momentum V16</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; }
         #ui { position: absolute; top: 20px; width: 100%; text-align: center; color: #00ffaa; pointer-events: none; text-shadow: 0 0 10px #00ffaa; }
@@ -23,12 +23,26 @@
     </script>
 
     <script type="module">
+        /*
+         * CHANGELOG:
+         * v10: Initial version.
+         * v14: Fixed rapid-tap 180-degree turn bug (death on rapid direction changes).
+         * v15: Attempted momentum fix; issue persisted due to timer-logic dependency.
+         * v16: [CURRENT] 
+         *      - Decoupled movement logic from the render loop timing.
+         *      - Implemented a dedicated 'accumulator' for movement steps.
+         *      - This ensures the snake moves at a constant speed regardless of 
+         *        input or frame rate, preventing "stopping" or "slowing down."
+         *      - Fixed the "no turns = stop" bug by ensuring the movement loop 
+         *        is independent of the turn-processing state.
+         */
+
         import * as THREE from 'three';
 
         // --- CONFIGURATION ---
         const RADIUS = 10;
         const STEP_DISTANCE = 0.45;
-        const MOVE_SPEED = 0.15; // Seconds between steps
+        const MOVE_SPEED = 0.15; // Seconds per step
 
         let score = 0;
         let isGameOver = false;
@@ -36,6 +50,9 @@
         let snakeMeshes = [];    
         let moveDir = new THREE.Vector3(0, 1, 0);
         let nextMoveDir = new THREE.Vector3(0, 1, 0);
+
+        // Movement timing
+        let moveAccumulator = 0;
 
         let food = { position: new THREE.Vector3(), mesh: null };
         let obstacles = [];
@@ -109,6 +126,7 @@
             isGameOver = false;
             moveDir.set(0, 1, 0);
             nextMoveDir.copy(moveDir);
+            moveAccumulator = 0;
 
             document.getElementById('score').innerText = "SCORE: 0";
             document.getElementById('game-over').style.display = 'none';
@@ -120,7 +138,6 @@
             if (isGameOver) return;
 
             const currentPos = snakePositions[0].clone().normalize(); 
-            // Determine local axes based on current position and current heading
             const rightVec = new THREE.Vector3().crossVectors(currentPos, moveDir).normalize();
             const upRelativeVec = new THREE.Vector3().crossVectors(rightVec, currentPos).normalize();
 
@@ -136,105 +153,113 @@
                 newDir.copy(upRelativeVec.clone().negate());
             }
 
-            // Prevent 180-degree turns
             if (newDir.dot(moveDir) < -0.5) return;
 
-            // Ensure direction is tangent to the sphere
             newDir.projectOnPlane(currentPos);
             newDir.normalize();
 
-            // Buffer the turn to be applied at the next movement tick
             nextMoveDir.copy(newDir);
         });
 
-        let lastMoveTime = 0;
-        function update(time) {
-            if (isGameOver) return;
+        function performMovementStep() {
+            // Update actual direction from buffered input
+            moveDir.copy(nextMoveDir);
 
-            // If enough time has passed, move the snake
-            if (time - lastMoveTime >= MOVE_SPEED * 1000) {
-                lastMoveTime = time;
+            const currentPos = snakePositions[0].clone();
 
-                // 1. Apply the buffered direction
-                moveDir.copy(nextMoveDir);
+            // Calculate new position
+            const newPos = currentPos.clone()
+                .add(moveDir.clone().multiplyScalar(STEP_DISTANCE))
+                .normalize() 
+                .multiplyScalar(RADIUS);
 
-                const currentPos = snakePositions[0].clone();
+            // Keep moveDir tangent
+            moveDir.projectOnPlane(newPos.clone().normalize());
+            moveDir.normalize();
 
-                // 2. Calculate new position
-                const newPos = currentPos.clone()
-                    .add(moveDir.clone().multiplyScalar(STEP_DISTANCE))
-                    .normalize() 
-                    .multiplyScalar(RADIUS);
-
-                // 3. Maintain tangency for the movement vector
-                moveDir.projectOnPlane(newPos.clone().normalize());
-                moveDir.normalize();
-
-                // Collision: Self
-                for(let i=1; i<snakePositions.length; i++) {
-                    if (newPos.distanceTo(snakePositions[i]) < 0.5) { 
-                        endGame(); 
-                        return; 
-                    }
+            // Collision: Self
+            for(let i=1; i<snakePositions.length; i++) {
+                if (newPos.distanceTo(snakePositions[i]) < 0.5) { 
+                    endGame(); 
+                    return; 
                 }
-                // Collision: Obstacles
-                obstacles.forEach(o => { 
-                    if (newPos.distanceTo(o.position) < 0.8) endGame(); 
-                });
+            }
+            // Collision: Obstacles
+            obstacles.forEach(o => { 
+                if (newPos.distanceTo(o.position) < 0.8) endGame(); 
+            });
 
-                // Collision: Food
-                const eating = newPos.distanceTo(food.position) < 1.0;
-                if (eating) {
-                    score += 10;
-                    document.getElementById('score').innerText = `SCORE: ${score}`;
-                    spawnFood();
-                }
+            // Collision: Food
+            const eating = newPos.distanceTo(food.position) < 1.0;
+            if (eating) {
+                score += 10;
+                document.getElementById('score').innerText = `SCORE: ${score}`;
+                spawnFood();
+            }
 
-                // 4. Update position array
-                snakePositions.unshift(newPos.clone());
-                if (!eating) snakePositions.pop();
+            snakePositions.unshift(newPos.clone());
+            if (!eating) snakePositions.pop();
 
-                // 5. Sync Meshes
-                while (snakeMeshes.length < snakePositions.length) {
-                    const m = snakeMeshes.length === 0 ? createHead() : createSegment();
-                    snakeMeshes.push(m);
-                    scene.add(m);
-                }
-                while (snakeMeshes.length > snakePositions.length) {
-                    scene.remove(snakeMeshes.pop());
-                }
+            // Sync Meshes
+            while (snakeMeshes.length < snakePositions.length) {
+                const m = snakeMeshes.length === 0 ? createHead() : createSegment();
+                snakeMeshes.push(m);
+                scene.add(m);
+            }
+            while (snakeMeshes.length > snakePositions.length) {
+                scene.remove(snakeMeshes.pop());
+            }
 
-                for (let i = 0; i < snakePositions.length; i++) {
-                    snakeMeshes[i].position.copy(snakePositions[i]);
-                    const upVector = snakePositions[i].clone().normalize();
+            for (let i = 0; i < snakePositions.length; i++) {
+                snakeMeshes[i].position.copy(snakePositions[i]);
+                const upVector = snakePositions[i].clone().normalize();
 
-                    if (i < snakePositions.length - 1) {
-                        snakeMeshes[i].lookAt(snakePositions[i+1]);
-                        snakeMeshes[i].up.copy(upVector);
-                    } else {
-                        const lookTarget = snakePositions[i].clone().add(moveDir);
-                        snakeMeshes[i].lookAt(lookTarget);
-                        snakeMeshes[i].up.copy(upVector);
-                    }
+                if (i < snakePositions.length - 1) {
+                    snakeMeshes[i].lookAt(snakePositions[i+1]);
+                    snakeMeshes[i].up.copy(upVector);
+                } else {
+                    const lookTarget = snakePositions[i].clone().add(moveDir);
+                    snakeMeshes[i].lookAt(lookTarget);
+                    snakeMeshes[i].up.copy(upVector);
                 }
             }
         }
 
-        function endGame() {
-            isGameOver = true;
-            document.getElementById('game-over').style.display = 'block';
-            document.getElementById('final-score').innerText = `FINAL SCORE: ${score}`;
-        }
+        let lastTime = 0; // Add this to track real time
 
         function animate(time) {
             requestAnimationFrame(animate);
-            update(time);
-            if (!isGameOver && snakeMeshes.length > 0) {
-                visualHeadPos.lerp(snakeMeshes[0].position, 0.1);
-                camera.position.lerp(visualHeadPos.clone().normalize().multiplyScalar(18), 0.05);
-                camera.lookAt(visualHeadPos);
-                light.position.copy(visualHeadPos.clone().multiplyScalar(2));
+
+            // 1. Calculate actual time passed since last frame (in seconds)
+            if (!lastTime) lastTime = time;
+            let delta = (time - lastTime) / 1000; // Convert ms to seconds
+            lastTime = time;
+
+            // 2. Clamp delta to prevent "teleporting" or logic breaks when switching tabs
+            if (delta > 0.1) delta = 0.1; 
+
+            if (!isGameOver) {
+                // 3. ACCUMULATOR LOGIC: Using REAL time
+                moveAccumulator += delta;
+
+                // While we have enough accumulated time, take a step
+                while (moveAccumulator >= MOVE_SPEED) {
+                    performMovementStep();
+                    moveAccumulator -= MOVE_SPEED;
+                }
+
+                // Visual smoothing for camera
+                if (snakeMeshes.length > 0) {
+                    visualHeadPos.lerp(snakeMeshes[0].position, 0.1);
+                    camera.position.lerp(visualHeadPos.clone().normalize().multiplyScalar(18), 0.05);
+                    camera.lookAt(visualHeadPos);
+                    light.position.copy(visualHeadPos.clone().multiplyScalar(2));
+                }
+            } else {
+                // Reset lastTime when game is over so it's fresh for restart
+                lastTime = time; 
             }
+
             renderer.render(scene, camera);
         }
 
@@ -245,6 +270,7 @@
         });
 
         initGame();
+        // Start the animation loop with an initial timestamp
         animate(0);
     </script>
 </body>
