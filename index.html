@@ -81,44 +81,61 @@
                     function createHead() {
             const group = new THREE.Group();
 
-            // --- STEP 1: GENERATE A YELLOW GLOW TEXTURE ON THE FLY ---
+            // --- STEP 1: GENERATE A SOFT RADIATING TEXTURE ---
             const canvas = document.createElement('canvas');
-            canvas.width = 64;
-            canvas.height = 64;
+            canvas.width = 128; // Higher res for better blending
+            canvas.height = 128;
             const context = canvas.getContext('2d');
-            const gradient = context.createRadialGradient(32, 32, 0, 32, 32, 32);
-            // Center is solid Yellow, edges are completely transparent
-            gradient.addColorStop(0, 'rgba(255, 255, 0, 1)'); 
-            gradient.addColorStop(1, 'rgba(255, 255, 0, 0)');
+            const gradient = context.createRadialGradient(64, 64, 0, 64, 64, 64);
+            // Yellow center fading to transparent
+            gradient.addColorStop(0, 'rgba(255, 255, 0, 0.8)'); 
+            gradient.addColorStop(0.5, 'rgba(255, 200, 0, 0.3)'); // Mid-way glow
+            gradient.addColorStop(1, 'rgba(255, 255, 0, 0)');    // Smooth fade
             context.fillStyle = gradient;
-            context.fillRect(0, 0, 64, 64);
+            context.fillRect(0, 0, 128, 128);
 
             const glowTexture = new THREE.CanvasTexture(canvas);
 
-            // --- STEP 2: THE CORE (Now Glowing Red) ---
+            // --- STEP 2: THE CORE (The Intense Red Heart) ---
             const coreMat = new THREE.MeshStandardMaterial({ 
-                color: 0xff0000,       // Pure Red
-                emissive: 0xff0000,    // Red Emissive
-                emissiveIntensity: 10  // High intensity for a "hot" core
+                color: 0xff0000, 
+                emissive: 0xff0000, 
+                emissiveIntensity: 15 // Super intense
             });
-            const core = new THREE.Mesh(new THREE.SphereGeometry(0.2, 32, 32), coreMat);
+            const core = new THREE.Mesh(new THREE.SphereGeometry(0.15, 32, 32), coreMat);
             group.add(core);
 
-            // --- STEP 3: THE AURA (Now Yellow) ---
-            const auraMat = new THREE.MeshBasicMaterial({
+            // --- STEP 3: THE CHURNING AURA (Triple Layered) ---
+            const auraMaterial = new THREE.MeshBasicMaterial({
                 map: glowTexture,
                 transparent: true,
                 blending: THREE.AdditiveBlending,
                 depthWrite: false,
                 side: THREE.DoubleSide
             });
-            const aura = new THREE.Mesh(new THREE.SphereGeometry(0.6, 32, 32), auraMat);
-            group.add(aura);
 
-            // --- STEP 4: THE LIGHT (Changed to Yellow to match aura) ---
-            // This ensures the light hitting the obstacles is yellow
-            const glowLight = new THREE.PointLight(0xffff00, 50, 8); 
+            // Layer 1: The Main Base (Large and slow)
+            const aura1 = new THREE.Mesh(new THREE.SphereGeometry(0.6, 32, 32), auraMaterial);
+            group.add(aura1);
+
+            // Layer 2: The Turbulence (Slightly larger, rotated differently)
+            const aura2 = new THREE.Mesh(new THREE.SphereGeometry(0.7, 32, 32), auraMaterial);
+            aura2.rotation.set(Math.PI / 3, Math.PI / 4, 0);
+            group.add(aura2);
+
+            // Layer 3: The Outer Flicker (Even larger, very faint)
+            const aura3 = new THREE.Mesh(new THREE.SphereGeometry(0.8, 32, 32), auraMaterial);
+            aura3.rotation.set(0, Math.PI / 2, Math.PI / 3);
+            group.add(aura3);
+
+            // --- STEP 4: THE LIGHT ---
+            const glowLight = new THREE.PointLight(0xffaa00, 60, 10); 
             group.add(glowLight);
+
+            // --- STEP 5: THE "CHURN" ANIMATION LOGIC ---
+            // We attach a custom property so the animate() loop can see it
+            group.userData.isPlasma = true;
+            group.userData.layers = [aura1, aura2, aura3];
 
             return group;
         }
@@ -363,6 +380,18 @@
                             // Keep the head upright relative to the sphere surface
                             mesh.up.copy(pos.clone().normalize());
                         }
+
+                        // --- INSERTED CHURN LOGIC HERE ---
+                        if (snakeMeshes[0].userData.isPlasma) {
+                            const head = snakeMeshes[0];
+                            const layers = head.userData.layers;
+                            const time = currentTime * 0.001; 
+
+                            layers[0].rotation.y = time * 0.5;
+                            layers[1].rotation.x = time * 0.7;
+                            layers[2].rotation.z = time * 0.3;
+                        }
+                        // ---------------------------------
 
                         // 3. SMOOTH CAMERA
                         visualHeadPos.lerp(snakeMeshes[0].position, 0.1);
