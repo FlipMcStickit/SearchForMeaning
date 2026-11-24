@@ -287,25 +287,24 @@
                     performMovementStep();
                     lastStepTime = currentTime;
                 }
-                                if (snakeMeshes.length > 0) {
+                                                if (snakeMeshes.length > 0) {
                     visualHeadPos.lerp(snakeMeshes[0].position, 0.1);
                     camera.position.lerp(visualHeadPos.clone().normalize().multiplyScalar(18), 0.05);
 
-                    // --- NEW CAMERA ORIENTATION LOGIC ---
-                    // 1. Get the 'Normal' (the direction pointing out from the sphere at the head)
+                    // --- SMOOTHED/DELAYED CAMERA ORIENTATION ---
                     const headNormal = visualHeadPos.clone().normalize();
 
-                    // 2. The 'Target Up' is the snake's movement direction, 
-                    // but projected so it's perfectly flat against the sphere surface
+                    // Target direction: where the snake is currently heading
                     cameraUpTarget.copy(moveDir).projectOnPlane(headNormal).normalize();
 
-                    // 3. Smoothly transition the camera's 'up' vector so it doesn't snap
-                    smoothedUp.lerp(cameraUpTarget, 0.1);
+                    // THE DELAY: 
+                    // We use a very small number (0.02) so the camera "drifts" 
+                    // towards the new heading rather than snapping to it.
+                    smoothedUp.lerp(cameraUpTarget, 0.02); 
 
-                    // 4. Apply the up vector and look at the head
                     camera.up.copy(smoothedUp);
                     camera.lookAt(visualHeadPos);
-                    // -------------------------------------
+                    // --------------------------------------------
 
                     light.position.copy(visualHeadPos.clone().multiplyScalar(2));
                 }
