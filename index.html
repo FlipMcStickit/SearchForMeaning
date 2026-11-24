@@ -59,6 +59,7 @@
         let isGameOver = false;
         let isPaused = false;
         let gameStarted = false;
+        const pauseUI = document.getElementById('pause-ui'); // Cached the element here
         let snakePositions = []; 
         let snakeMeshes = [];    
         let moveDir = new THREE.Vector3(0, 1, 0);
@@ -313,9 +314,13 @@ glowTexture.colorSpace = THREE.SRGBColorSpace;            const scale = 0.4;
 
         window.addEventListener('keydown', (e) => {
             if (e.code === 'KeyW') { currentMoveInterval = BOOST_MOVE_INTERVAL; }
-            if (e.code === 'Space') { isPaused = !isPaused; return; }
+            if (e.code === 'Space') { 
+                isPaused = !isPaused; 
+                // Update the UI immediately only when the state changes
+                pauseUI.style.display = isPaused ? 'block' : 'none';
+                return; 
+            }
             if (!gameStarted || isGameOver || isPaused) return;
-
             // We only care about A and D for turning now. 
             // W is handled by the boost interval logic.
             if (e.code === 'KeyA' || e.code === 'ArrowLeft') {
@@ -392,9 +397,8 @@ if (collision) { endGame(); return; }
             requestAnimationFrame(animate);
             if (!isGameOver) {
                 if (!isPaused) {
-                    document.getElementById('pause-ui').style.display = 'none';
+                    // Removed the DOM write from here
                     if (currentTime - lastStepTime >= currentMoveInterval) { performMovementStep(); lastStepTime = currentTime; }
-
                     visualSnakePositions[0].lerp(snakePositions[0], 0.5);
 
                     for (let i = 1; i < visualSnakePositions.length; i++) {
@@ -454,9 +458,8 @@ if (collision) { endGame(); return; }
                         _v2.copy(visualHeadPos).multiplyScalar(2);
                         mainLight.position.copy(_v2);
                     }
-                } else { document.getElementById('pause-ui').style.display = 'block'; }
+                } 
             }
-
             if (food.mesh) {
                 const time = performance.now() * 0.005;
                 _v1.copy(food.position).normalize();
