@@ -345,11 +345,12 @@
             // Update moveDir to be the actual direction traveled
             moveDir.copy(newPos.clone().sub(currentPos).normalize());
 
-            // 3. Collision Detection
-            let collision = false;
-            for (let i = 6; i < snakePositions.length; i++) if (newPos.distanceTo(snakePositions[i]) < 0.3) collision = true;
-            if (!collision) for (let obs of obstacles) if (newPos.distanceTo(obs.position) < 0.4) collision = true;
-            if (collision) { endGame(); return; }
+// 3. Collision Detection
+let collision = false;
+// We increased the self-collision threshold from 0.3 to 0.4 to prevent accidental deaths
+for (let i = 6; i < snakePositions.length; i++) if (newPos.distanceTo(snakePositions[i]) < 0.4) collision = true;
+if (!collision) for (let obs of obstacles) if (newPos.distanceTo(obs.position) < 0.4) collision = true;
+if (collision) { endGame(); return; }
 
             // 4. Food & Growth
             if (newPos.distanceTo(food.position) < 0.6) {
