@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Snake: Spherical Odyssey - V22 FIXED</title>
+    <title>Snake: Spherical Odyssey - V23 FIXED</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; }
         #ui { position: absolute; top: 20px; width: 100%; text-align: center; color: #00ffaa; pointer-events: none; text-shadow: 0 0 10px #00ffaa; }
@@ -36,18 +36,14 @@
         let snakePositions = []; 
         let snakeMeshes = [];    
         let moveDir = new THREE.Vector3(0, 1, 0);
-
-        // Input Buffer
         let inputQueue = []; 
-
         let lastStepTime = 0;
         let food = { position: new THREE.Vector3(), mesh: null };
         let obstacles = [];
         let visualHeadPos = new THREE.Vector3(RADIUS, 0, 0);
 
-        // THE FIX: Growth Buffer flag
-        // If true, the head ignores the tail for exactly one movement step
-        let growthBuffer = false;
+        // NEW STATE: Track if the last move was a growth event
+        let wasGrowthStep = false;
 
         // --- THREE.JS SETUP ---
         const scene = new THREE.Scene();
@@ -116,7 +112,7 @@
             obstacles = []; 
             score = 0; 
             isGameOver = false;
-            growthBuffer = false;
+            wasGrowthStep = false;
             moveDir.set(0, 1, 0);
             inputQueue = []; 
             lastStepTime = performance.now();
@@ -127,7 +123,6 @@
             spawnFood();
         }
 
-        // --- INPUT LOGIC (With Queue) ---
         window.addEventListener('keydown', (e) => {
             if (isGameOver) return;
 
@@ -142,7 +137,6 @@
             else if (e.key === 'w' || e.key === 'ArrowUp') newDir.copy(upRelativeVec);
             else if (e.key === 's' || e.key === 'ArrowDown') newDir.copy(upRelativeVec.clone().negate());
 
-            // Prevent 180-degree turns
             if (newDir.dot(moveDir) < -0.5) return;
 
             newDir.projectOnPlane(currentPos);
@@ -153,41 +147,34 @@
         });
 
         function performMovementStep() {
-            // 1. Process Input Queue (One per step)
             if (inputQueue.length > 0) {
                 moveDir.copy(inputQueue.shift());
             }
 
             const currentPos = snakePositions[0].clone();
-
-            // 2. Calculate New Position
             const newPos = currentPos.clone()
                 .add(moveDir.clone().multiplyScalar(STEP_DISTANCE))
                 .normalize() 
                 .multiplyScalar(RADIUS);
 
-            // Update movement direction for next frame relative to the new spherical position
             moveDir.projectOnPlane(newPos.clone().normalize());
             moveDir.normalize();
 
-            // 3. Collision Detection
-
-            // Collision: Self
-            // We check against snakePositions. 
-            // If growthBuffer is active, we skip checking against the very last segment.
+            // --- CRITICAL FIX: COLLISION LOGIC ---
             for(let i=1; i < snakePositions.length; i++) {
-                // THE FIX: If we just grew, skip collision check for the newest segment for one step
-                if (growthBuffer && i === snakePositions.length - 1) {
+                // If the previous step resulted in growth, the snake is currently 
+                // occupying the same space as the tail. We MUST skip the collision 
+                // check for the very last segment to allow the 'double-tap' turn to clear the space.
+                if (wasGrowthStep && i === snakePositions.length - 1) {
                     continue; 
                 }
 
-                if (newPos.distanceTo(snakePositions[i]) < 0.5) { 
+                if (newPos.distanceTo(snakePositions[i]) < 0.45) { 
                     endGame(); 
                     return; 
                 }
             }
 
-            // Collision: Obstacles
             for(let i=0; i<obstacles.length; i++) { 
                 if (newPos.distanceTo(obstacles[i].position) < 0.8) { 
                     endGame(); 
@@ -195,22 +182,25 @@
                 }
             }
 
-            // 4. Food/Growth Logic
+            // Collision: Food
             const eating = newPos.distanceTo(food.position) < 1.0;
+
+            // Set the flag: if we eat, the NEXT movement step must ignore the tail
+            wasGrowthStep = eating;
+
             if (eating) {
                 score += 10;
                 document.getElementById('score').innerText = `SCORE: ${score}`;
                 spawnFood();
-                growthBuffer = true; // Set buffer to protect the head during the next move
-            } else {
-                growthBuffer = false; // Reset buffer if not eating
             }
 
-            // 5. Update Snake Array
             snakePositions.unshift(newPos.clone());
-            if (!eating) snakePositions.pop();
+            if (!eating) {
+                snakePositions.pop();
+                wasGrowthStep = false; // If we didn't grow, reset the buffer
+            }
 
-            // 6. Sync Meshes
+            // Sync Meshes
             while (snakeMeshes.length < snakePositions.length) {
                 const m = snakeMeshes.length === 0 ? createHead() : createSegment();
                 snakeMeshes.push(m);
@@ -243,15 +233,11 @@
 
         function animate(currentTime) {
             requestAnimationFrame(animate);
-
             if (!isGameOver) {
-                // Continuous movement logic using performance.now()
                 if (currentTime - lastStepTime >= MOVE_INTERVAL) {
                     performMovementStep();
                     lastStepTime = currentTime;
                 }
-
-                // Visual Camera Smoothing (Lerp)
                 if (snakeMeshes.length > 0) {
                     visualHeadPos.lerp(snakeMeshes[0].position, 0.1);
                     camera.position.lerp(visualHeadPos.clone().normalize().multiplyScalar(18), 0.05);
@@ -259,7 +245,6 @@
                     light.position.copy(visualHeadPos.clone().multiplyScalar(2));
                 }
             }
-
             renderer.render(scene, camera);
         }
 
