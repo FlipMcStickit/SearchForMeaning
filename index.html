@@ -211,19 +211,17 @@ food = { position: new THREE.Vector3(), mesh: foodGroup, particles: particles };
             return group;
         }
 
-                function createSegment() {
+        function createSegment() {
             const segmentGroup = new THREE.Group();
 
-            // Create a few small particles to act as "debris"
-            const particleCount = 6; 
+            // Reduced particle count slightly so it looks less like a cloud and more like a core
+            const particleCount = 4; 
             for (let i = 0; i < particleCount; i++) {
-                // Create a small, soft circular glow
                 const canvas = document.createElement('canvas');
                 canvas.width = 32; canvas.height = 32;
                 const ctx = canvas.getContext('2d');
                 const grad = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
 
-                // Mix Magenta (food) and Red/Orange/Yellow (head)
                 const colors = ['rgba(255, 50, 255, 1)', 'rgba(255, 100, 0, 1)', 'rgba(255, 255, 0, 1)'];
                 const chosenColor = colors[Math.floor(Math.random() * colors.length)];
 
@@ -242,25 +240,28 @@ food = { position: new THREE.Vector3(), mesh: foodGroup, particles: particles };
 
                 const sprite = new THREE.Sprite(mat);
 
-                // Randomize position within the segment so it looks like a cloud
+                // --- TIGHTENED POSITIONING ---
+                // We reduced the multiplier from 0.5 to 0.15. 
+                // This keeps the particles very close to the center of the segment.
                 sprite.position.set(
-                    (Math.random() - 0.5) * 0.5,
-                    (Math.random() - 0.5) * 0.5,
-                    (Math.random() - 0.5) * 0.5
+                    (Math.random() - 0.5) * 0.15,
+                    (Math.random() - 0.5) * 0.15,
+                    (Math.random() - 0.5) * 0.15
                 );
-                // Randomize size slightly
-                const s = 0.3 + Math.random() * 0.4;
+
+                // Slightly smaller scale to keep the silhouette slim
+                const s = 0.2 + Math.random() * 0.2;
                 sprite.scale.set(s, s, s);
 
                 segmentGroup.add(sprite);
             }
 
-            // Add a small "core" to give it some structure
-            const coreGeom = new THREE.SphereGeometry(0.15, 8, 8);
+            // We made the core slightly larger and more visible to "hold" the particles together
+            const coreGeom = new THREE.SphereGeometry(0.18, 8, 8);
             const coreMat = new THREE.MeshBasicMaterial({ 
                 color: 0xffaa00, 
                 transparent: true, 
-                opacity: 0.4,
+                opacity: 0.5,
                 blending: THREE.AdditiveBlending 
             });
             const core = new THREE.Mesh(coreGeom, coreMat);
@@ -510,7 +511,7 @@ food = { position: new THREE.Vector3(), mesh: foodGroup, particles: particles };
                                     const time = currentTime * 0.005;
                                     mesh.children.forEach((child, idx) => {
                                         // Wiggle the sprites slightly over time
-                                        const wiggle = Math.sin(time + i + idx) * 0.05;
+                                        const wiggle = Math.sin(time + i + idx) * 0.02;
                                         if (child.isSprite) {
                                             child.position.x += wiggle;
                                             child.scale.setScalar(0.4 + Math.sin(time + i) * 0.1);
