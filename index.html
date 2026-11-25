@@ -2,10 +2,11 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Snake: Spherical Odyssey</title>
+    <title>KEVIN: A Spherical Odyssey</title>
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700&display=swap');
         body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; }
-        #ui { position: absolute; top: 20px; width: 100%; text-align: center; color: #00ffaa; pointer-events: none; text-shadow: 0 0 10px #00ffaa; }
+        #ui { position: absolute; top: 20px; width: 100%; text-align: center; color: #00ffaa; pointer-events: none; text-shadow: 0 0 15px #00ffaa; font-family: 'Orbitron', sans-serif; font-size: 1.2em; }
         #game-over { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; text-align: center; display: none; background: rgba(0,0,0,0.9); padding: 40px; border: 2px solid #ff4444; border-radius: 15px; z-index: 10; }
         button { background: #00ffaa; border: none; padding: 10px 20px; font-weight: bold; cursor: pointer; margin-top: 20px; }
         #pause-ui { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 3em; display: none; pointer-events: none; }
@@ -22,11 +23,11 @@
     </style>
 </head>
 <body>
-    <div id="ui"><h1 id="score">SCORE: 0</h1></div>
+    <div id="ui"><h1 id="score">0</h1></div>
     <div id="pause-ui">PAUSED</div>
 
     <div id="start-screen">
-        <h1 style="color: #00ffaa; text-shadow: 0 0 20px #00ffaa;">SNAKE: SPHERICAL ODYSSEY</h1>
+        <h1 style="color: #00ffaa; text-shadow: 0 0 20px #00ffaa;">KEVIN: A SPHERICAL ODYSSEY</h1>
         <div class="instructions">
             <p><strong>A</strong> : LEFT</p>
             <p><strong>D</strong> : RIGHT</p>
@@ -37,7 +38,7 @@
     </div>
 
     <div id="game-over">
-        <h1 style="color: #ff4444;">VOID CONSUMED YOU</h1>
+        <h1 style="color: #ff4444;">An Opportunity For New Purpose.</h1>
         <p id="final-score"></p>
         <button onclick="location.reload()">RESTART</button>
     </div>
@@ -193,25 +194,23 @@ glowTexture.colorSpace = THREE.SRGBColorSpace;            const scale = 0.4;
             return group;
         }
 
+        // Shared resources for all segments (Step 13)
+        const segmentCoreGeo = new THREE.SphereGeometry(0.18, 16, 16);
+        const segmentCoreMat = new THREE.MeshBasicMaterial({ color: 0xff4400, transparent: true, opacity: 0.9 });
+        const segmentGlowGeo = new THREE.SphereGeometry(0.25, 16, 16);
+        const segmentGlowMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.4 });
+
         function createSegment() {
             const segmentGroup = new THREE.Group();
-            const segmentMat = new THREE.MeshBasicMaterial({ 
-                color: 0xff4400,
-                transparent: true,
-                opacity: 0.9      
-            });
-            const core = new THREE.Mesh(new THREE.SphereGeometry(0.18, 16, 16), segmentMat);
+
+            const core = new THREE.Mesh(segmentCoreGeo, segmentCoreMat);
             segmentGroup.add(core);
-            const glowMat = new THREE.MeshBasicMaterial({ 
-                color: 0xffaa00, 
-                transparent: true, 
-                opacity: 0.4 
-            });
-            const glowLayer = new THREE.Mesh(new THREE.SphereGeometry(0.25, 16, 16), glowMat);
+
+            const glowLayer = new THREE.Mesh(segmentGlowGeo, segmentGlowMat);
             segmentGroup.add(glowLayer);
+
             return segmentGroup;
         }
-
         function spawnFood() {
             let validSpawn = false, attempts = 0;
             let newFoodPos = new THREE.Vector3();
@@ -306,7 +305,7 @@ glowTexture.colorSpace = THREE.SRGBColorSpace;            const scale = 0.4;
             moveDir.set(0, 1, 0); 
             inputQueue = []; 
             lastStepTime = performance.now();
-            document.getElementById('score').innerText = "SCORE: 0";
+            document.getElementById('score').innerText = "0";
             document.getElementById('game-over').style.display = 'none';
             for(let i=0; i<30; i++) spawnObstacle();
             spawnFood();
@@ -372,7 +371,7 @@ if (collision) { endGame(); return; }
 
             // 4. Food & Growth
             if (newPos.distanceTo(food.position) < 0.6) {
-                score += 10; document.getElementById('score').innerText = `SCORE: ${score}`;
+                score += 1; document.getElementById('score').innerText = score;
                 spawnFood();
             } else { 
                 snakePositions.pop(); 
@@ -390,7 +389,7 @@ if (collision) { endGame(); return; }
 
         function endGame() {
             isGameOver = true; document.getElementById('game-over').style.display = 'block';
-            document.getElementById('final-score').innerText = `FINAL SCORE: ${score}`;
+            document.getElementById('final-score').innerText = `Knowledge Gained: ${score}`;
         }
 
         function animate(currentTime) {
@@ -425,20 +424,23 @@ if (collision) { endGame(); return; }
                             const pos = visualSnakePositions[i];
                             mesh.position.copy(pos);
 
-                            if (i < snakeMeshes.length - 1) {
-                                mesh.lookAt(visualSnakePositions[i+1]);
-                            } else {
-                                _v1.copy(pos).add(moveDir); 
-                                mesh.lookAt(_v1);
+                            // The head (i=0) still needs lookAt for lighting/camera orientation.
+                            // Segments (i > 0) are spheres, so lookAt is unnecessary (Step 13).
+                            if (i === 0) {
+                                if (i < snakeMeshes.length - 1) {
+                                    mesh.lookAt(visualSnakePositions[i+1]);
+                                } else {
+                                    _v1.copy(pos).add(moveDir); 
+                                    mesh.lookAt(_v1);
+                                }
+                                mesh.up.copy(pos).normalize();
                             }
-                            mesh.up.copy(pos).normalize();
 
+                            // Pulse the entire group at once using scale.setScalar (Step 13).
                             if (i > 0) {
                                 const time = currentTime * 0.005;
                                 const pulse = 1.0 + Math.sin(time + i) * 0.05;
-                                mesh.children.forEach(child => {
-                                    child.scale.set(pulse, pulse, pulse);
-                                });
+                                mesh.scale.setScalar(pulse);
                             }
                         }
                         visualHeadPos.lerp(snakeMeshes[0].position, 0.1);
