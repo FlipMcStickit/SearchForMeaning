@@ -194,12 +194,13 @@ glowTexture.colorSpace = THREE.SRGBColorSpace;            const scale = 0.4;
             return group;
         }
 
-        // Shared resources for all segments (Step 13)
-        const segmentCoreGeo = new THREE.SphereGeometry(0.18, 16, 16);
-        const segmentCoreMat = new THREE.MeshBasicMaterial({ color: 0xff4400, transparent: true, opacity: 0.9 });
-        const segmentGlowGeo = new THREE.SphereGeometry(0.25, 16, 16);
-        const segmentGlowMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.4 });
-
+               // Shared resources for all segments (Step 13)
+        const segmentCoreGeo = new THREE.SphereGeometry(0.075, 16, 16); // 50% of 0.1 is 0.05
+        // A very deep, intense "lava" red
+        const segmentCoreMat = new THREE.MeshBasicMaterial({ color: 0xff1100, transparent: true, opacity: 1.0 });
+        const segmentGlowGeo = new THREE.SphereGeometry(0.175, 16, 16); // 50% of 0.25 is 0.125
+        // Magenta is now at 0.35—visible enough to provide scale, but dim enough to stay subtle
+        const segmentGlowMat = new THREE.MeshBasicMaterial({ color: 0xff32ff, transparent: true, opacity: 0.35 });
         function createSegment() {
             const segmentGroup = new THREE.Group();
 
