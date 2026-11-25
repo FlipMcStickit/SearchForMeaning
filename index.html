@@ -66,9 +66,10 @@
         let moveDir = new THREE.Vector3(0, 1, 0);
         let inputQueue = []; // Stores relative turn directions (e.g., "turn left") 
         let lastStepTime = 0;
-        let food = { position: new THREE.Vector3(), mesh: null };
+        let food = { position: new THREE.Vector3(), mesh: null, particles: [] };
         let obstacles = [];
-
+        let embers = [];
+        let emberOrangeMat, emberCyanMat;
         let visualHeadPos = new THREE.Vector3(RADIUS, 0, 0);
         let visualSnakePositions = []; 
         let cameraTargetUp = new THREE.Vector3(0, 1, 0);
@@ -265,6 +266,72 @@ glowTexture.colorSpace = THREE.SRGBColorSpace;            const scale = 0.4;
             if (validSpawn) { scene.add(obs); obstacles.push(obs); }
         }
 		
+        // This function handles creating, moving, and fading the embers
+        function updateEmbers(currentTime) {
+            if (snakeMeshes.length === 0) return;
+
+            // SAFETY CAP: Prevents performance drops on low-end PCs
+            // If we have more than 1000 particles, we stop spawning new ones until some die.
+            const MAX_PARTICLES = 1000;
+
+            // 1. Spawn embers from segments
+            if (embers.length < MAX_PARTICLES) {
+                for (let i = 0; i < snakeMeshes.length; i++) {
+                    // Increased probability to 0.3 for a much denser, thicker stream
+                    if (Math.random() < 0.4) { 
+                        const targetMesh = snakeMeshes[i];
+                        const pos = targetMesh.position;
+                        const surfaceNormal = pos.clone().normalize();
+                        const sideDir = new THREE.Vector3().crossVectors(moveDir, surfaceNormal).normalize();
+
+                        const isOrange = Math.random() > 0.5;
+
+                        // PERFORMANCE FIX: Use the pre-created materials instead of making new ones!
+                        const spriteMat = isOrange ? emberOrangeMat : emberCyanMat;
+
+                        const sprite = new THREE.Sprite(spriteMat);
+                        sprite.position.copy(pos);
+
+                        const sideSpread = (Math.random() - 0.5) * 0.12; 
+                        const velocity = moveDir.clone().multiplyScalar(-0.05) 
+                            .add(sideDir.multiplyScalar(sideSpread))
+                            .add(surfaceNormal.multiplyScalar((Math.random() - 0.5) * 0.02));
+
+                        sprite.userData = { 
+                            life: 0, 
+                            velocity: velocity,
+                            maxLife: 0.3 + Math.random() * 0.4 
+                        };
+
+                        embers.push(sprite);
+                        scene.add(sprite);
+                    }
+                }
+            }
+
+            // 2. Update all existing embers
+            for (let i = embers.length - 1; i >= 0; i--) {
+                const e = embers[i];
+                const data = e.userData;
+
+                data.life += 0.03; 
+                e.position.add(data.velocity);
+
+                const alpha = Math.sin(data.life * Math.PI / data.maxLife);
+
+                // Using a single property change (opacity) is very cheap for the GPU
+                e.material.opacity = alpha; 
+                e.scale.setScalar(alpha * 0.08); 
+
+                if (data.life >= data.maxLife) {
+                    scene.remove(e);
+                    // We don't call .dispose() on the material anymore because 
+                    // the material is being shared by everyone!
+                    embers.splice(i, 1);
+                }
+            }
+        }
+		
         function syncSnakeLength() {
             // Ensure the visual array matches the logical array size
             if (visualSnakePositions.length < snakePositions.length) {
@@ -296,7 +363,10 @@ glowTexture.colorSpace = THREE.SRGBColorSpace;            const scale = 0.4;
                 scene.remove(o);
             });
             obstacles = [];
-            snakePositions = [new THREE.Vector3(RADIUS, 0, 0)];
+            embers = []; // Clear existing embers when a new game starts
+                        emberOrangeMat = new THREE.SpriteMaterial({ color: 0xffaa00, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+            emberCyanMat = new THREE.SpriteMaterial({ color: 0x00ccff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+			snakePositions = [new THREE.Vector3(RADIUS, 0, 0)];
             visualSnakePositions = [new THREE.Vector3(RADIUS, 0, 0)];
             const head = createHead(); 
             snakeMeshes = [head]; 
@@ -397,6 +467,7 @@ if (collision) { endGame(); return; }
             requestAnimationFrame(animate);
             if (!isGameOver) {
                 if (!isPaused) {
+                    updateEmbers(currentTime); // Run the ember logic every frame
                     // Removed the DOM write from here
                     if (currentTime - lastStepTime >= currentMoveInterval) { performMovementStep(); lastStepTime = currentTime; }
                     visualSnakePositions[0].lerp(snakePositions[0], 0.5);
