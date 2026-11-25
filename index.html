@@ -230,29 +230,32 @@ glowTexture.colorSpace = THREE.SRGBColorSpace;            const scale = 0.4;
         }
 
         function spawnObstacle() {
-            const geometry = new THREE.IcosahedronGeometry(0.6, 0);
+            const baseSize = 0.6;
+            const geometry = new THREE.IcosahedronGeometry(baseSize, 0);
             const positionAttribute = geometry.getAttribute('position');
             const vertex = new THREE.Vector3();
 
             // Apply per-vertex scaling to create the "cracked/jagged" look
             for (let i = 0; i < positionAttribute.count; i++) {
                 vertex.fromBufferAttribute(positionAttribute, i);
-                // Randomly shrink each vertex towards the center to create cracks
                 const factor = 0.4 + Math.random() * 0.5; 
                 vertex.multiplyScalar(factor);
                 positionAttribute.setXYZ(i, vertex.x, vertex.y, vertex.z);
             }
 
-            // IMPORTANT: Tell Three.js the positions have changed so it updates the GPU
             positionAttribute.needsUpdate = true;
-
-            // Recalculate how light hits the new jagged surface
             geometry.computeVertexNormals();
 
-            const greenShades = [0x00ff88, 0x22aa44, 0x00cc66, 0xadffaf, 0x004422];
-            const randomColor = greenShades[Math.floor(Math.random() * greenShades.length)];
+            // New Iceberg Palette: Whites, light cyans, and deep blues
+            const iceShades = [0xffffff, 0xe0f7fa, 0x81d4fa, 0x03a9f4, 0x01579b];
+            const randomColor = iceShades[Math.floor(Math.random() * iceShades.length)];
             const material = new THREE.MeshPhongMaterial({ color: randomColor, flatShading: true, shininess: 100 });
             const obs = new THREE.Mesh(geometry, material);
+
+            // Randomize size: Most are normal, but some scale up significantly (up to 250%)
+            // This creates that "giant asteroid" feel
+            const scaleFactor = 0.7 + Math.random() * 2.3; 
+            obs.scale.setScalar(scaleFactor);
 
             let validSpawn = false, attempts = 0, startPos = snakePositions[0];
             while (!validSpawn && attempts < 50) {
