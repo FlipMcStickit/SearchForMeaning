@@ -31,7 +31,8 @@
         <div class="instructions">
             <p><strong>A</strong> : LEFT</p>
             <p><strong>D</strong> : RIGHT</p>
-            <p><strong>W</strong> : BOOST</p>
+            <p><strong>W</strong> or <strong class="arrow">↑</strong> : BOOST</p>
+            <p><strong>SPACE</strong> : START / PAUSE</p>
         </div>
         <p class="lore">"Good Luck In Kevin's Search For Knowledge. <br> May Your Memory Become Long."</p>
         <button onclick="startGame()">BEGIN THE SEARCH</button>
@@ -40,7 +41,7 @@
     <div id="game-over">
         <h1 style="color: #ff4444;">An Opportunity For New Purpose.</h1>
         <p id="final-score"></p>
-        <button onclick="location.reload()">RESTART</button>
+        <button onclick="restartGame()">RESTART</button>
     </div>
 
     <script type="importmap">
@@ -367,7 +368,7 @@ glowTexture.colorSpace = THREE.SRGBColorSpace;            const scale = 0.4;
             while (!validSpawn && attempts < 50) {
                 attempts++;
                 const pot = randomPointOnSphere(RADIUS);
-                if (pot.distanceTo(startPos) > 4.0) { 
+                if (pot.distanceTo(startPos) > 5.0) { 
                     validSpawn = true; 
                     obs.position.copy(pot); 
                 }
@@ -505,30 +506,36 @@ glowTexture.colorSpace = THREE.SRGBColorSpace;            const scale = 0.4;
             spawnFood();
         }
 
-        window.addEventListener('keydown', (e) => {
-            if (e.code === 'KeyW') { currentMoveInterval = BOOST_MOVE_INTERVAL; }
-            if (e.code === 'Space') { 
-                isPaused = !isPaused; 
-                // Update the UI immediately only when the state changes
-                pauseUI.style.display = isPaused ? 'block' : 'none';
-                return; 
+ window.addEventListener('keydown', (e) => {
+    if (e.code === 'KeyW' || e.code === 'ArrowUp') { currentMoveInterval = BOOST_MOVE_INTERVAL; }
+            // Handle Spacebar for Start, Restart, and Pause
+            if (e.code === 'Space') {
+                if (!gameStarted) {
+                    startGame();
+                } else if (isGameOver) {
+                    restartGame();
+                } else {
+                    isPaused = !isPaused;
+                    pauseUI.style.display = isPaused ? 'block' : 'none';
+                }
+                return; // Stop here so we don't accidentally move the snake
             }
+
+            // If the game hasn't started, or is over, or is paused, don't process movement
             if (!gameStarted || isGameOver || isPaused) return;
-            // We only care about A and D for turning now. 
-            // W is handled by the boost interval logic.
+
             if (e.code === 'KeyA' || e.code === 'ArrowLeft') {
                 inputQueue.push('LEFT');
             } else if (e.code === 'KeyD' || e.code === 'ArrowRight') {
                 inputQueue.push('RIGHT');
             }
 
-            // Limit queue size so input doesn't feel "laggy"
             if (inputQueue.length > 2) inputQueue.shift();
         });
 
-        window.addEventListener('keyup', (e) => {
-            if (e.code === 'KeyW') { currentMoveInterval = BASE_MOVE_INTERVAL; }
-        });
+window.addEventListener('keyup', (e) => {
+    if (e.code === 'KeyW' || e.code === 'ArrowUp') { currentMoveInterval = BASE_MOVE_INTERVAL; }
+});
 
         function performMovementStep() {
             // 1. Handle Turn Buffering
@@ -697,6 +704,10 @@ if (collision) { endGame(); return; }
             gameStarted = true;
             initGame();
             requestAnimationFrame(animate);
+        };
+		
+		        window.restartGame = function() {
+            initGame();
         };
 		
         window.addEventListener('blur', () => {
