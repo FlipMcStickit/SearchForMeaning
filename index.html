@@ -68,8 +68,17 @@
         let lastStepTime = 0;
         let food = { position: new THREE.Vector3(), mesh: null, particles: [] };
         let obstacles = [];
-        let embers = [];
-        let emberOrangeMat, emberCyanMat;
+        let emberSystem = {
+            mesh: null,
+            maxParticles: 1000,
+            positions: null,   // Float32Array
+            colors: null,      // Float32Array
+            baseColors: null,  // Float32Array (to remember the original color)
+            velocities: null,  // Float32Array
+            lives: null,       // Float32Array
+            maxLives: null,    // Float32Array
+            active: null       // Uint8Array (0 = dead, 1 = alive)
+        };
         let visualHeadPos = new THREE.Vector3(RADIUS, 0, 0);
         let visualSnakePositions = []; 
         let cameraTargetUp = new THREE.Vector3(0, 1, 0);
@@ -209,8 +218,48 @@ particleTexture.colorSpace = THREE.SRGBColorSpace;
             foodGroup.add(sprite);
             particles.push(sprite);
         }
-        scene.add(foodGroup);
+         scene.add(foodGroup);
         food = { position: new THREE.Vector3(), mesh: foodGroup, particles: particles };
+
+        // --- EMBER SYSTEM INITIALIZATION ---
+        function setupEmberSystem() {
+            const max = emberSystem.maxParticles;
+            emberSystem.positions = new Float32Array(max * 3);
+            emberSystem.colors = new Float32Array(max * 3);
+            emberSystem.baseColors = new Float32Array(max * 3);
+            emberSystem.velocities = new Float32Array(max * 3);
+            emberSystem.lives = new Float32Array(max);
+            emberSystem.maxLives = new Float32Array(max);
+            emberSystem.active = new Uint8Array(max);
+
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(emberSystem.positions, 3));
+            geometry.setAttribute('color', new THREE.BufferAttribute(emberSystem.colors, 3));
+
+            const canvas = document.createElement('canvas');
+            canvas.width = 32; canvas.height = 32;
+            const ctx = canvas.getContext('2d');
+            const grad = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+            grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+            grad.addColorStop(0.5, 'rgba(255, 255, 255, 0.5)');
+            grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, 32, 32);
+            const tex = new THREE.CanvasTexture(canvas);
+
+            const material = new THREE.PointsMaterial({
+                size: 0.15,
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false,
+                vertexColors: true,
+                map: tex
+            });
+
+            emberSystem.mesh = new THREE.Points(geometry, material);
+            scene.add(emberSystem.mesh);
+        }
+        setupEmberSystem(); 
 
         function createHead() {
             const group = new THREE.Group();
@@ -328,68 +377,85 @@ glowTexture.colorSpace = THREE.SRGBColorSpace;            const scale = 0.4;
 		
         // This function handles creating, moving, and fading the embers
         function updateEmbers(currentTime) {
-            if (snakeMeshes.length === 0) return;
+            if (snakeMeshes.length === 0 || !emberSystem.mesh) return;
 
-            // SAFETY CAP: Prevents performance drops on low-end PCs
-            // If we have more than 1000 particles, we stop spawning new ones until some die.
-            const MAX_PARTICLES = 1000;
+            const { maxParticles, positions, colors, baseColors, velocities, lives, maxLives, active, mesh } = emberSystem;
 
-            // 1. Spawn embers from segments
-            if (embers.length < MAX_PARTICLES) {
-                for (let i = 0; i < snakeMeshes.length; i++) {
-                    // Increased probability to 0.3 for a much denser, thicker stream
-                    if (Math.random() < 0.4) { 
-                        const targetMesh = snakeMeshes[i];
-                        const pos = targetMesh.position;
-                        const surfaceNormal = pos.clone().normalize();
-                        const sideDir = new THREE.Vector3().crossVectors(moveDir, surfaceNormal).normalize();
+            // 1. Spawning (Find empty slots and fill them)
+            for (let i = 0; i < snakeMeshes.length; i++) {
+                if (Math.random() < 0.4) { 
+                    // Find the first inactive slot in our pool
+                    for (let s = 0; s < maxParticles; s++) {
+                        if (active[s] === 0) {
+                            active[s] = 1;
+                            const pos = snakeMeshes[i].position;
+                            const surfaceNormal = pos.clone().normalize();
+                            const sideDir = new THREE.Vector3().crossVectors(moveDir, surfaceNormal).normalize();
+                            const sideSpread = (Math.random() - 0.5) * 0.12;
 
-                        const isOrange = Math.random() > 0.5;
+                            // Physics: velocity
+                            const vel = moveDir.clone().multiplyScalar(-0.05)
+                                .add(sideDir.multiplyScalar(sideSpread))
+                                .add(surfaceNormal.multiplyScalar((Math.random() - 0.5) * 0.02));
 
-                        // PERFORMANCE FIX: Use the pre-created materials instead of making new ones!
-                        const spriteMat = isOrange ? emberOrangeMat : emberCyanMat;
+                            velocities[s * 3] = vel.x;
+                            velocities[s * 3 + 1] = vel.y;
+                            velocities[s * 3 + 2] = vel.z;
 
-                        const sprite = new THREE.Sprite(spriteMat);
-                        sprite.position.copy(pos);
+                            // Position
+                            positions[s * 3] = pos.x;
+                            positions[s * 3 + 1] = pos.y;
+                            positions[s * 3 + 2] = pos.z;
 
-                        const sideSpread = (Math.random() - 0.5) * 0.12; 
-                        const velocity = moveDir.clone().multiplyScalar(-0.05) 
-                            .add(sideDir.multiplyScalar(sideSpread))
-                            .add(surfaceNormal.multiplyScalar((Math.random() - 0.5) * 0.02));
+                            // Life
+                            lives[s] = 0;
+                            maxLives[s] = 0.3 + Math.random() * 0.4;
 
-                        sprite.userData = { 
-                            life: 0, 
-                            velocity: velocity,
-                            maxLife: 0.3 + Math.random() * 0.4 
-                        };
+                            // Color: Determine if Orange or Cyan
+                            const isOrange = Math.random() > 0.5;
+                            const r = isOrange ? 1.0 : 0.0;
+                            const g = isOrange ? 0.6 : 0.8;
+                            const b = isOrange ? 0.0 : 1.0;
 
-                        embers.push(sprite);
-                        scene.add(sprite);
+                            baseColors[s * 3] = r;
+                            baseColors[s * 3 + 1] = g;
+                            baseColors[s * 3 + 2] = b;
+                            colors[s * 3] = r;
+                            colors[s * 3 + 1] = g;
+                            colors[s * 3 + 2] = b;
+
+                            break; // Move to the next snake segment
+                        }
                     }
                 }
             }
 
-            // 2. Update all existing embers
-            for (let i = embers.length - 1; i >= 0; i--) {
-                const e = embers[i];
-                const data = e.userData;
+            // 2. Updating (Move existing particles and fade them)
+            for (let s = 0; s < maxParticles; s++) {
+                if (active[s] === 0) continue;
 
-                data.life += 0.03; 
-                e.position.add(data.velocity);
+                lives[s] += 0.03;
 
-                const alpha = Math.sin(data.life * Math.PI / data.maxLife);
-
-                // Using a single property change (opacity) is very cheap for the GPU
-                e.material.opacity = alpha; 
-                e.scale.setScalar(alpha * 0.08); 
-
-                if (data.life >= data.maxLife) {
-                    scene.remove(e);
-                    // We don't call .dispose() on the material anymore because 
-                    // the material is being shared by everyone!
-                    embers.splice(i, 1);
+                if (lives[s] >= maxLives[s]) {
+                    active[s] = 0;
+                    continue;
                 }
+
+                // Move position
+                positions[s * 3] += velocities[s * 3];
+                positions[s * 3 + 1] += velocities[s * 3 + 1];
+                positions[s * 3 + 2] += velocities[s * 3 + 2];
+
+                // Dimming: Instead of changing alpha, we dim the RGB color
+                const alpha = Math.sin(lives[s] * Math.PI / maxLives[s]);
+                colors[s * 3] = baseColors[s * 3] * alpha;
+                colors[s * 3 + 1] = baseColors[s * 3 + 1] * alpha;
+                colors[s * 3 + 2] = baseColors[s * 3 + 2] * alpha;
             }
+
+            // Tell Three.js that the data has changed so it updates the screen
+            mesh.geometry.attributes.position.needsUpdate = true;
+            mesh.geometry.attributes.color.needsUpdate = true;
         }
 		
         function syncSnakeLength() {
@@ -423,9 +489,6 @@ glowTexture.colorSpace = THREE.SRGBColorSpace;            const scale = 0.4;
                 scene.remove(o);
             });
             obstacles = [];
-            embers = []; // Clear existing embers when a new game starts
-                        emberOrangeMat = new THREE.SpriteMaterial({ color: 0xffaa00, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
-            emberCyanMat = new THREE.SpriteMaterial({ color: 0x00ccff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
 			snakePositions = [new THREE.Vector3(RADIUS, 0, 0)];
             visualSnakePositions = [new THREE.Vector3(RADIUS, 0, 0)];
             const head = createHead(); 
