@@ -2,10 +2,11 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>KEVIN: A Spherical Odyssey</title>
+    meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>KEVIN: A Spherical Odyssey</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700&display=swap');
-        body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; }
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; touch-action: none; user-select: none; overscroll-behavior: none; }
         #ui { position: absolute; top: 20px; width: 100%; text-align: center; color: #00ffaa; pointer-events: none; text-shadow: 0 0 15px #00ffaa; font-family: 'Orbitron', sans-serif; font-size: 1.2em; }
         #game-over { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; text-align: center; display: none; background: rgba(0,0,0,0.9); padding: 40px; border: 2px solid #ff4444; border-radius: 15px; z-index: 10; }
         button { background: #00ffaa; border: none; padding: 10px 20px; font-weight: bold; cursor: pointer; margin-top: 20px; }
@@ -739,37 +740,41 @@ window.addEventListener('keyup', (e) => {
     if (e.code === 'KeyW' || e.code === 'ArrowUp') { currentMoveInterval = BASE_MOVE_INTERVAL; }
 });
 
-// --- TOUCH CONTROLS ---
+let boostTouchId = null;
+
 window.addEventListener('touchstart', (e) => {
-    // If the user is tapping the "Start" or "Restart" button, don't trigger game movement
-    if (e.target.tagName === 'BUTTON') return;
+  if (e.target.tagName === 'BUTTON') return;
+  if (e.cancelable) e.preventDefault();
+  if (!gameStarted || isGameOver) return;
+  if (isPaused) { isPaused = false; pauseUI.style.display = 'none'; return; }
 
-    // Prevent default behavior (like zooming or scrolling) while playing
-    if (e.cancelable) e.preventDefault();
-
-    if (!gameStarted || isGameOver || isPaused) return;
-
-    const touch = e.touches[0];
-    const x = touch.clientX;
-    const width = window.innerWidth;
-
-    // Divide screen into 3 zones: 
-    // Left 33% (Turn Left), Right 33% (Turn Right), Middle 33% (Boost)
-    if (x < width * 0.33) {
-        // Tap the left side to turn
-        inputQueue.push('LEFT');
-    } else if (x > width * 0.66) {
-        // Tap the right side to turn
-        inputQueue.push('RIGHT');
-    } else {
-        // Touch and hold the center to boost
-        currentMoveInterval = BOOST_MOVE_INTERVAL;
+  for (const t of e.changedTouches) {
+    const x = t.clientX / window.innerWidth;
+    if (x < 0.33) inputQueue.push('LEFT');
+    else if (x > 0.66) inputQueue.push('RIGHT');
+    else if (boostTouchId === null) {
+      boostTouchId = t.identifier;
+      currentMoveInterval = BOOST_MOVE_INTERVAL;
     }
+  }
+  while (inputQueue.length > 2) inputQueue.shift();
 }, { passive: false });
 
-window.addEventListener('touchend', (e) => {
-    // When finger is lifted, return to normal speed
-    currentMoveInterval = BASE_MOVE_INTERVAL;
+function endTouch(e) {
+  for (const t of e.changedTouches) {
+    if (t.identifier === boostTouchId) {
+      boostTouchId = null;
+      currentMoveInterval = BASE_MOVE_INTERVAL;
+    }
+  }
+}
+window.addEventListener('touchend', endTouch);
+window.addEventListener('touchcancel', endTouch);
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && gameStarted && !isGameOver) {
+    isPaused = true; pauseUI.style.display = 'block';
+  }
 });
 
         function performMovementStep() {
