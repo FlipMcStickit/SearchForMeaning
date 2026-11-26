@@ -101,24 +101,34 @@
         let isGameOver = false;
         let isPaused = false;
         let gameStarted = false;
-        const pauseUI = document.getElementById('pause-ui'); // Cached the element here
+        const pauseUI = document.getElementById('pause-ui');
         let snakePositions = []; 
         let snakeMeshes = [];    
         let moveDir = new THREE.Vector3(0, 1, 0);
-        let inputQueue = []; // Stores relative turn directions (e.g., "turn left") 
+        let inputQueue = [];
         let lastStepTime = 0;
-        let food = { position: new THREE.Vector3(), mesh: null, particles: [] };
+        let food;
         let obstacles = [];
         let emberSystem = {
             mesh: null,
             maxParticles: 1000,
-            positions: null,   // Float32Array
-            colors: null,      // Float32Array
-            baseColors: null,  // Float32Array (to remember the original color)
-            velocities: null,  // Float32Array
-            lives: null,       // Float32Array
-            maxLives: null,    // Float32Array
-            active: null       // Uint8Array (0 = dead, 1 = alive)
+            positions: null,   
+            colors: null,      
+            baseColors: null,  
+            velocities: null,  
+            lives: null,       
+            maxLives: null,    
+            active: null       
+        };
+        let foodExplosionSystem = {
+            mesh: null,
+            maxParticles: 300,
+            positions: null,
+            colors: null,
+            velocities: null,
+            lives: null,
+            maxLives: null,
+            active: null
         };
         let visualHeadPos = new THREE.Vector3(RADIUS, 0, 0);
         let visualSnakePositions = []; 
@@ -131,10 +141,9 @@
         const _headNormal = new THREE.Vector3();
         const _desiredUp = new THREE.Vector3();
 
-        // Helper to get a uniformly distributed point on a sphere
         function randomPointOnSphere(radius) {
-            const theta = Math.random() * Math.PI * 2; // Longitude
-            const phi = Math.acos(2 * Math.random() - 1); // Latitude (mapped to cos for uniformity)
+            const theta = Math.random() * Math.PI * 2;
+            const phi = Math.acos(2 * Math.random() - 1);
             return new THREE.Vector3(
                 radius * Math.sin(phi) * Math.cos(theta),
                 radius * Math.sin(phi) * Math.sin(theta),
@@ -169,7 +178,6 @@
         const cloudTexture = new THREE.CanvasTexture(canvas);
         cloudTexture.colorSpace = THREE.SRGBColorSpace;
 
-        // --- ATMOSPHERE GLOW (The "Backside" Eclipse Halo) ---
         const atmosphereShader = {
             uniforms: {
                 uTime: { value: 0.0 }
@@ -189,13 +197,10 @@
                 varying vec3 vNormal;
                 varying vec3 vEyeVector;
                 void main() {
-                    // This math works with 'BackSide' rendering to create a sharp rim
                     float fresnel = pow(1.0 - abs(dot(vNormal, normalize(vEyeVector))), 8.0);
 
-                    // Shimmering effect
                     float shimmer = sin(uTime * 3.0 + vNormal.x * 10.0 + vNormal.y * 10.0) * 0.15 + 0.85;
 
-                    // Colors: Cyan and Gold
                     vec3 cyan = vec3(0.0, 1.0, 0.67);
                     vec3 gold = vec3(1.0, 0.4, 0.0);
                     vec3 color = mix(cyan, gold, sin(uTime * 0.5) * 0.5 + 0.5);
@@ -211,14 +216,11 @@
             fragmentShader: atmosphereShader.fragmentShader,
             transparent: true,
             blending: THREE.AdditiveBlending,
-            side: THREE.BackSide // <--- This is the magic trick!
+            side: THREE.BackSide
         });
 
-        // We make the sphere slightly larger (10%) to give the halo room to breathe
         const atmosphere = new THREE.Mesh(new THREE.SphereGeometry(RADIUS * 1.1, 64, 64), atmosphereMaterial);
         scene.add(atmosphere);
-        // --------------------------------------------
-        // The actual planet surface
         const planetMaterial = new THREE.MeshPhongMaterial({ 
             map: cloudTexture,
             transparent: true, 
@@ -243,26 +245,35 @@
         canvasF.width = 64; canvasF.height = 64;
         const ctxF = canvasF.getContext('2d');
         const gradF = ctxF.createRadialGradient(32, 32, 0, 32, 32, 32);
-        gradF.addColorStop(0, 'rgba(255, 50, 255, 1)');
-        gradF.addColorStop(0.5, 'rgba(150, 0, 255, 0.3)');
+        gradF.addColorStop(0, 'rgba(255, 100, 255, 1)'); 
+        gradF.addColorStop(0.4, 'rgba(200, 0, 255, 0.6)'); 
         gradF.addColorStop(1, 'rgba(0, 0, 0, 0)');
         ctxF.fillStyle = gradF;
         ctxF.fillRect(0, 0, 64, 64);
-const particleTexture = new THREE.CanvasTexture(canvasF);
-particleTexture.colorSpace = THREE.SRGBColorSpace;
-        const particleCount = 25; 
+        const particleTexture = new THREE.CanvasTexture(canvasF);
+        particleTexture.colorSpace = THREE.SRGBColorSpace;
+
+        const particleCount = 40;
         const particles = [];
         for (let i = 0; i < particleCount; i++) {
-            const spriteMat = new THREE.SpriteMaterial({ map: particleTexture, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+            const spriteMat = new THREE.SpriteMaterial({ 
+                map: particleTexture, 
+                transparent: true, 
+                blending: THREE.AdditiveBlending, 
+                depthWrite: false 
+            });
             const sprite = new THREE.Sprite(spriteMat);
-            sprite.userData = { speed: 0.2 + Math.random() * 0.3, drift: (Math.random() - 0.5) * 0.1, life: Math.random() };
+            sprite.userData = { 
+                speed: 0.2 + Math.random() * 0.3, 
+                drift: (Math.random() - 0.5) * 0.1, 
+                life: Math.random() 
+            };
             foodGroup.add(sprite);
             particles.push(sprite);
         }
-         scene.add(foodGroup);
+        scene.add(foodGroup);
         food = { position: new THREE.Vector3(), mesh: foodGroup, particles: particles };
 
-        // --- EMBER SYSTEM INITIALIZATION ---
         function setupEmberSystem() {
             const max = emberSystem.maxParticles;
             emberSystem.positions = new Float32Array(max * 3);
@@ -300,7 +311,160 @@ particleTexture.colorSpace = THREE.SRGBColorSpace;
             emberSystem.mesh = new THREE.Points(geometry, material);
             scene.add(emberSystem.mesh);
         }
-        setupEmberSystem(); 
+        setupEmberSystem();
+
+        function setupFoodExplosionSystem() {
+            const max = foodExplosionSystem.maxParticles;
+            foodExplosionSystem.positions = new Float32Array(max * 3);
+            foodExplosionSystem.colors = new Float32Array(max * 3);
+            foodExplosionSystem.velocities = new Float32Array(max * 3);
+            foodExplosionSystem.lives = new Float32Array(max);
+            foodExplosionSystem.maxLives = new Float32Array(max);
+            foodExplosionSystem.active = new Uint8Array(max);
+
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(foodExplosionSystem.positions, 3));
+            geometry.setAttribute('color', new THREE.BufferAttribute(foodExplosionSystem.colors, 3));
+
+            const canvas = document.createElement('canvas');
+            canvas.width = 32; canvas.height = 32;
+            const ctx = canvas.getContext('2d');
+            const grad = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+            grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+            grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, 32, 32);
+            const tex = new THREE.CanvasTexture(canvas);
+
+            const material = new THREE.PointsMaterial({
+                size: 0.2,
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false,
+                vertexColors: true,
+                map: tex
+            });
+
+            foodExplosionSystem.mesh = new THREE.Points(geometry, material);
+            scene.add(foodExplosionSystem.mesh);
+        }
+        setupFoodExplosionSystem();
+
+        function explodeFood(explosionPos, targetPos) {
+            const { maxParticles, positions, colors, velocities, lives, maxLives, active } = foodExplosionSystem;
+            let count = 0;
+            for (let i = 0; i < maxParticles && count < 40; i++) {
+                if (active[i] === 0) {
+                    active[i] = 1;
+                    positions[i * 3] = explosionPos.x;
+                    positions[i * 3 + 1] = explosionPos.y;
+                    positions[i * 3 + 2] = explosionPos.z;
+
+                    const dir = new THREE.Vector3().subVectors(targetPos, explosionPos).normalize();
+
+                    const swirl = new THREE.Vector3(
+                        (Math.random() - 0.5) * 0.2,
+                        (Math.random() - 0.5) * 0.2,
+                        (Math.random() - 0.5) * 0.2
+                    );
+                    const vel = dir.multiplyScalar(0.15).add(swirl);
+
+                    velocities[i * 3] = vel.x;
+                    velocities[i * 3 + 1] = vel.y;
+                    velocities[i * 3 + 2] = vel.z;
+
+                    const palette = [
+                        new THREE.Color(0xff00ff), // Magenta
+                        new THREE.Color(0x00ffff), // Cyan
+                        new THREE.Color(0xffff00), // Yellow
+                        new THREE.Color(0xffffff), // White
+                        new THREE.Color(0x00ffaa), // Mint
+                        new THREE.Color(0xff7700)  // Orange
+                    ];
+                    const col = palette[Math.floor(Math.random() * palette.length)];
+                    colors[i * 3] = col.r;
+                    colors[i * 3 + 1] = col.g;
+                    colors[i * 3 + 2] = col.b;
+
+                    lives[i] = 0;
+                    maxLives[i] = 0.6 + Math.random() * 0.6;
+                    count++;
+                }
+            }
+        }
+
+                function updateFoodExplosions() {
+            const { maxParticles, positions, colors, velocities, lives, maxLives, active, mesh } = foodExplosionSystem;
+            const headPos = snakePositions[0]; // The current head position
+
+            for (let i = 0; i < maxParticles; i++) {
+                if (active[i] === 0) continue;
+
+                lives[i] += 0.015; // Slower life progression for smoother movement
+                if (lives[i] >= maxLives[i]) {
+                    active[i] = 0;
+                    continue;
+                }
+
+                const progress = lives[i] / maxLives[i];
+
+                // PHASE 2: The Swirl/Seek
+                // After the initial burst (25% of its life), particles start "seeking" the head
+                if (progress > 0.25) {
+                    const cx = positions[i * 3];
+                    const cy = positions[i * 3 + 1];
+                    const cz = positions[i * 3 + 2];
+
+                    // Direction from particle to head
+                    const dx = headPos.x - cx;
+                    const dy = headPos.y - cy;
+                    const dz = headPos.z - cz;
+                    const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
+
+                    if (dist > 0.01) {
+                        const dirX = dx / dist;
+                        const dirY = dy / dist;
+                        const dirZ = dz / dist;
+
+                        // Create a "swirl" by calculating a vector perpendicular to the path to the head
+                        // We use the head's position as a proxy for the surface normal
+                        const nx = headPos.x / RADIUS;
+                        const ny = headPos.y / RADIUS;
+                        const nz = headPos.z / RADIUS;
+
+                        // Cross product (dir x normal) to get the tangent swirl direction
+                        const sx = dirY * nz - dirZ * ny;
+                        const sy = dirZ * nx - dirX * nz;
+                        const sz = dirX * ny - dirY * nx;
+
+                        // Steering forces: 
+                        // 0.015 is the "magnet" strength pulling it in
+                        // 0.05 is the "swirl" strength spinning it around
+                        velocities[i * 3] += (dirX * 0.015 + sx * 0.05);
+                        velocities[i * 3 + 1] += (dirY * 0.015 + sy * 0.05);
+                        velocities[i * 3 + 2] += (dirZ * 0.015 + sz * 0.05);
+                    }
+
+                    // Damping: This prevents the particles from gaining infinite speed and flying away
+                    velocities[i * 3] *= 0.96;
+                    velocities[i * 3 + 1] *= 0.96;
+                    velocities[i * 3 + 2] *= 0.96;
+                }
+
+                // Apply the velocity to the position
+                positions[i * 3] += velocities[i * 3];
+                positions[i * 3 + 1] += velocities[i * 3 + 1];
+                positions[i * 3 + 2] += velocities[i * 3 + 2];
+
+                // Fade out the color as they reach the end of their life
+                const alpha = 1.0 - progress;
+                colors[i * 3] *= alpha;
+                colors[i * 3 + 1] *= alpha;
+                colors[i * 3 + 2] *= alpha;
+            }
+            mesh.geometry.attributes.position.needsUpdate = true;
+            mesh.geometry.attributes.color.needsUpdate = true;
+        }
 
         function createHead() {
             const group = new THREE.Group();
@@ -337,12 +501,9 @@ glowTexture.colorSpace = THREE.SRGBColorSpace;            const scale = 0.4;
             return group;
         }
 
-               // Shared resources for all segments (Step 13)
         const segmentCoreGeo = new THREE.SphereGeometry(0.075, 16, 16); // 50% of 0.1 is 0.05
-        // A very deep, intense "lava" red
         const segmentCoreMat = new THREE.MeshBasicMaterial({ color: 0xff1100, transparent: true, opacity: 1.0 });
         const segmentGlowGeo = new THREE.SphereGeometry(0.175, 16, 16); // 50% of 0.25 is 0.125
-        // Magenta is now at 0.35—visible enough to provide scale, but dim enough to stay subtle
         const segmentGlowMat = new THREE.MeshBasicMaterial({ color: 0xff32ff, transparent: true, opacity: 0.35 });
         function createSegment() {
             const segmentGroup = new THREE.Group();
@@ -363,7 +524,6 @@ glowTexture.colorSpace = THREE.SRGBColorSpace;            const scale = 0.4;
                 newFoodPos.copy(randomPointOnSphere(RADIUS));
 
                 let collision = false;
-                // Use hitRadius to ensure food spawns far enough away from differently sized obstacles
                 for (let obs of obstacles) if (newFoodPos.distanceTo(obs.position) < obs.userData.hitRadius * 1.5) collision = true;
                 for (let pos of snakePositions) if (newFoodPos.distanceTo(pos) < 1.5) collision = true;
                 if (!collision) validSpawn = true;
@@ -378,22 +538,17 @@ glowTexture.colorSpace = THREE.SRGBColorSpace;            const scale = 0.4;
             const positionAttribute = geometry.getAttribute('position');
             const vertex = new THREE.Vector3();
 
-            // Task 1: Use a Map to ensure duplicate vertices at the same corner 
-            // receive the same displacement factor.
             const displacementMap = new Map();
 
             for (let i = 0; i < positionAttribute.count; i++) {
                 vertex.fromBufferAttribute(positionAttribute, i);
 
-                // Create a unique key based on the vertex position rounded to 3 decimals
                 const key = `${vertex.x.toFixed(3)},${vertex.y.toFixed(3)},${vertex.z.toFixed(3)}`;
 
                 let factor;
                 if (displacementMap.has(key)) {
-                    // If we've seen this coordinate before, use the existing factor
                     factor = displacementMap.get(key);
                 } else {
-                    // Otherwise, create a new one and save it in the Map
                     factor = 0.4 + Math.random() * 0.5;
                     displacementMap.set(key, factor);
                 }
@@ -405,18 +560,14 @@ glowTexture.colorSpace = THREE.SRGBColorSpace;            const scale = 0.4;
             positionAttribute.needsUpdate = true;
             geometry.computeVertexNormals();
 
-            // New Iceberg Palette: Whites, light cyans, and deep blues
             const iceShades = [0xffffff, 0xe0f7fa, 0x81d4fa, 0x03a9f4, 0x01579b];
             const randomColor = iceShades[Math.floor(Math.random() * iceShades.length)];
             const material = new THREE.MeshPhongMaterial({ color: randomColor, flatShading: true, shininess: 100 });
             const obs = new THREE.Mesh(geometry, material);
 
-            // Randomize size: Most are normal, but some scale up significantly
             const scaleFactor = 0.7 + Math.random() * 2.3; 
             obs.scale.setScalar(scaleFactor);
 
-            // Task 2: Compute the bounding sphere AFTER displacement and scaling
-            // are applied so the hit radius is perfectly accurate.
             geometry.computeBoundingSphere();
             obs.userData.hitRadius = geometry.boundingSphere.radius * scaleFactor;
 
@@ -432,16 +583,14 @@ glowTexture.colorSpace = THREE.SRGBColorSpace;            const scale = 0.4;
             if (validSpawn) { scene.add(obs); obstacles.push(obs); }
         }
 		
-        // This function handles creating, moving, and fading the embers
+        //wwa  This function handles creating, moving, and fading the embers
         function updateEmbers(currentTime) {
             if (snakeMeshes.length === 0 || !emberSystem.mesh) return;
 
             const { maxParticles, positions, colors, baseColors, velocities, lives, maxLives, active, mesh } = emberSystem;
 
-            // 1. Spawning (Find empty slots and fill them)
    for (let i = 1; i < snakeMeshes.length; i++) {
     if (Math.random() < 0.4) { 
-        // Find the first inactive slot in our pool
         for (let s = 0; s < maxParticles; s++) {
                         if (active[s] === 0) {
                             active[s] = 1;
@@ -450,7 +599,6 @@ glowTexture.colorSpace = THREE.SRGBColorSpace;            const scale = 0.4;
                             const sideDir = new THREE.Vector3().crossVectors(moveDir, surfaceNormal).normalize();
                             const sideSpread = (Math.random() - 0.5) * 0.12;
 
-                            // Physics: velocity
                             const vel = moveDir.clone().multiplyScalar(-0.05)
                                 .add(sideDir.multiplyScalar(sideSpread))
                                 .add(surfaceNormal.multiplyScalar((Math.random() - 0.5) * 0.02));
@@ -459,12 +607,10 @@ glowTexture.colorSpace = THREE.SRGBColorSpace;            const scale = 0.4;
                             velocities[s * 3 + 1] = vel.y;
                             velocities[s * 3 + 2] = vel.z;
 
-                            // Position
                             positions[s * 3] = pos.x;
                             positions[s * 3 + 1] = pos.y;
                             positions[s * 3 + 2] = pos.z;
 
-                            // Life
                             lives[s] = 0;
                             maxLives[s] = 0.3 + Math.random() * 0.4;
 
@@ -546,6 +692,7 @@ glowTexture.colorSpace = THREE.SRGBColorSpace;            const scale = 0.4;
                 scene.remove(o);
             });
             obstacles = [];
+			foodExplosionSystem.active.fill(0);
 			snakePositions = [new THREE.Vector3(RADIUS, 0, 0)];
             visualSnakePositions = [new THREE.Vector3(RADIUS, 0, 0)];
             const head = createHead(); 
@@ -638,7 +785,10 @@ if (collision) { endGame(); return; }
 
             // 4. Food & Growth
             if (newPos.distanceTo(food.position) < 0.6) {
-                score += 1; document.getElementById('score').innerText = score;
+                score += 1; 
+                document.getElementById('score').innerText = score;
+                // Trigger the explosion! We pass the food position and the current head position
+                explodeFood(food.position, snakePositions[0]);
                 spawnFood();
             } else { 
                 snakePositions.pop(); 
@@ -664,8 +814,8 @@ if (collision) { endGame(); return; }
             requestAnimationFrame(animate);
             if (!isGameOver) {
                 if (!isPaused) {
-                    updateEmbers(currentTime); // Run the ember logic every frame
-                    // Removed the DOM write from here
+                    updateEmbers(currentTime);
+                    updateFoodExplosions();
                     if (currentTime - lastStepTime >= currentMoveInterval) { performMovementStep(); lastStepTime = currentTime; }
                     visualSnakePositions[0].lerp(snakePositions[0], 0.5);
 
@@ -741,11 +891,31 @@ if (collision) { endGame(); return; }
 
                 food.particles.forEach((p, i) => {
                     const lifeProgress = (time * p.userData.speed + p.userData.life) % 1;
-                    const height = lifeProgress * 0.8, width = (1.0 - lifeProgress) * 0.4; 
-                    p.position.set(p.userData.drift * Math.sin(time + i) * width, height, p.userData.drift * Math.cos(time + i) * width);
-                    const scale = (1.0 - lifeProgress) * 0.5;
+
+                    // Create 3 overlapping flame shapes based on the particle index
+                    let hMult = 1.0;
+                    let wMult = 1.0;
+                    if (i % 3 === 0) { 
+                        hMult = 1.5; wMult = 0.4; // The "Core": Tall and narrow
+                    } else if (i % 3 === 1) { 
+                        hMult = 1.0; wMult = 0.9; // The "Body": Medium
+                    } else { 
+                        hMult = 0.6; wMult = 1.5; // The "Base": Wide and short
+                    }
+
+                    const height = lifeProgress * 0.8 * hMult;
+                    const width = (1.0 - lifeProgress) * 0.4 * wMult; 
+
+                    p.position.set(
+                        p.userData.drift * Math.sin(time + i) * width, 
+                        height, 
+                        p.userData.drift * Math.cos(time + i) * width
+                    );
+
+                    // Increased scale and luminosity for better visibility
+                    const scale = (1.0 - lifeProgress) * 0.8; 
                     p.scale.set(scale, scale, scale);
-                    p.material.opacity = (1.0 - lifeProgress);
+                    p.material.opacity = (1.0 - lifeProgress) * 1.2; 
                 });
             }
             renderer.render(scene, camera);
