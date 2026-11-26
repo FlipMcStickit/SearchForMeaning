@@ -116,8 +116,60 @@
             ctx.arc(x, y, radius, 0, Math.PI * 2);
             ctx.fill();
         }
-const cloudTexture = new THREE.CanvasTexture(canvas);
-cloudTexture.colorSpace = THREE.SRGBColorSpace;        const planetMaterial = new THREE.MeshPhongMaterial({ 
+        const cloudTexture = new THREE.CanvasTexture(canvas);
+        cloudTexture.colorSpace = THREE.SRGBColorSpace;
+
+        // --- ATMOSPHERE GLOW (The "Backside" Eclipse Halo) ---
+        const atmosphereShader = {
+            uniforms: {
+                uTime: { value: 0.0 }
+            },
+            vertexShader: `
+                varying vec3 vNormal;
+                varying vec3 vEyeVector;
+                void main() {
+                    vNormal = normalize(normalMatrix * normal);
+                    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                    vEyeVector = -mvPosition.xyz;
+                    gl_Position = projectionMatrix * mvPosition;
+                }
+            `,
+            fragmentShader: `
+                uniform float uTime;
+                varying vec3 vNormal;
+                varying vec3 vEyeVector;
+                void main() {
+                    // This math works with 'BackSide' rendering to create a sharp rim
+                    float fresnel = pow(1.0 - abs(dot(vNormal, normalize(vEyeVector))), 8.0);
+
+                    // Shimmering effect
+                    float shimmer = sin(uTime * 3.0 + vNormal.x * 10.0 + vNormal.y * 10.0) * 0.15 + 0.85;
+
+                    // Colors: Cyan and Gold
+                    vec3 cyan = vec3(0.0, 1.0, 0.67);
+                    vec3 gold = vec3(1.0, 0.4, 0.0);
+                    vec3 color = mix(cyan, gold, sin(uTime * 0.5) * 0.5 + 0.5);
+
+                    gl_FragColor = vec4(color, fresnel * shimmer);
+                }
+            `
+        };
+
+        const atmosphereMaterial = new THREE.ShaderMaterial({
+            uniforms: atmosphereShader.uniforms,
+            vertexShader: atmosphereShader.vertexShader,
+            fragmentShader: atmosphereShader.fragmentShader,
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            side: THREE.BackSide // <--- This is the magic trick!
+        });
+
+        // We make the sphere slightly larger (10%) to give the halo room to breathe
+        const atmosphere = new THREE.Mesh(new THREE.SphereGeometry(RADIUS * 1.1, 64, 64), atmosphereMaterial);
+        scene.add(atmosphere);
+        // --------------------------------------------
+        // The actual planet surface
+        const planetMaterial = new THREE.MeshPhongMaterial({ 
             map: cloudTexture,
             transparent: true, 
             opacity: 0.4,        
@@ -221,7 +273,8 @@ glowTexture.colorSpace = THREE.SRGBColorSpace;            const scale = 0.4;
                 newFoodPos.copy(randomPointOnSphere(RADIUS));
 
                 let collision = false;
-                for (let obs of obstacles) if (newFoodPos.distanceTo(obs.position) < 1.5) collision = true;
+                // Use hitRadius to ensure food spawns far enough away from differently sized obstacles
+                for (let obs of obstacles) if (newFoodPos.distanceTo(obs.position) < obs.userData.hitRadius * 1.5) collision = true;
                 for (let pos of snakePositions) if (newFoodPos.distanceTo(pos) < 1.5) collision = true;
                 if (!collision) validSpawn = true;
             }
@@ -256,6 +309,10 @@ glowTexture.colorSpace = THREE.SRGBColorSpace;            const scale = 0.4;
             // This creates that "giant asteroid" feel
             const scaleFactor = 0.7 + Math.random() * 2.3; 
             obs.scale.setScalar(scaleFactor);
+
+            // Compute the actual radius based on the distorted geometry and the scale applied
+            geometry.computeBoundingSphere();
+            obs.userData.hitRadius = geometry.boundingSphere.radius * scaleFactor;
 
             let validSpawn = false, attempts = 0, startPos = snakePositions[0];
             while (!validSpawn && attempts < 50) {
@@ -438,9 +495,19 @@ glowTexture.colorSpace = THREE.SRGBColorSpace;            const scale = 0.4;
 
 // 3. Collision Detection
 let collision = false;
-// We increased the self-collision threshold from 0.3 to 0.4 to prevent accidental deaths
+// Self-collision threshold
 for (let i = 6; i < snakePositions.length; i++) if (newPos.distanceTo(snakePositions[i]) < 0.4) collision = true;
-if (!collision) for (let obs of obstacles) if (newPos.distanceTo(obs.position) < 0.4) collision = true;
+
+// Obstacle collision: Use the calculated hitRadius multiplied by 0.85
+if (!collision) {
+    for (let obs of obstacles) {
+        if (newPos.distanceTo(obs.position) < obs.userData.hitRadius * 0.85) {
+            collision = true;
+            break;
+        }
+    }
+}
+
 if (collision) { endGame(); return; }
 
             // 4. Food & Growth
@@ -467,6 +534,7 @@ if (collision) { endGame(); return; }
         }
 
         function animate(currentTime) {
+			atmosphere.material.uniforms.uTime.value = currentTime * 0.001;
             requestAnimationFrame(animate);
             if (!isGameOver) {
                 if (!isPaused) {
