@@ -709,35 +709,67 @@ glowTexture.colorSpace = THREE.SRGBColorSpace;            const scale = 0.4;
             spawnFood();
         }
 
- window.addEventListener('keydown', (e) => {
+ // --- KEYBOARD CONTROLS ---
+window.addEventListener('keydown', (e) => {
     if (e.code === 'KeyW' || e.code === 'ArrowUp') { currentMoveInterval = BOOST_MOVE_INTERVAL; }
-            // Handle Spacebar for Start, Restart, and Pause
-            if (e.code === 'Space') {
-                if (!gameStarted) {
-                    startGame();
-                } else if (isGameOver) {
-                    restartGame();
-                } else {
-                    isPaused = !isPaused;
-                    pauseUI.style.display = isPaused ? 'block' : 'none';
-                }
-                return; // Stop here so we don't accidentally move the snake
-            }
 
-            // If the game hasn't started, or is over, or is paused, don't process movement
-            if (!gameStarted || isGameOver || isPaused) return;
+    if (e.code === 'Space') {
+        if (!gameStarted) {
+            startGame();
+        } else if (isGameOver) {
+            restartGame();
+        } else {
+            isPaused = !isPaused;
+            pauseUI.style.display = isPaused ? 'block' : 'none';
+        }
+        return;
+    }
 
-            if (e.code === 'KeyA' || e.code === 'ArrowLeft') {
-                inputQueue.push('LEFT');
-            } else if (e.code === 'KeyD' || e.code === 'ArrowRight') {
-                inputQueue.push('RIGHT');
-            }
+    if (!gameStarted || isGameOver || isPaused) return;
 
-            if (inputQueue.length > 2) inputQueue.shift();
-        });
+    if (e.code === 'KeyA' || e.code === 'ArrowLeft') {
+        inputQueue.push('LEFT');
+    } else if (e.code === 'KeyD' || e.code === 'ArrowRight') {
+        inputQueue.push('RIGHT');
+    }
+    if (inputQueue.length > 2) inputQueue.shift();
+});
 
 window.addEventListener('keyup', (e) => {
     if (e.code === 'KeyW' || e.code === 'ArrowUp') { currentMoveInterval = BASE_MOVE_INTERVAL; }
+});
+
+// --- TOUCH CONTROLS ---
+window.addEventListener('touchstart', (e) => {
+    // If the user is tapping the "Start" or "Restart" button, don't trigger game movement
+    if (e.target.tagName === 'BUTTON') return;
+
+    // Prevent default behavior (like zooming or scrolling) while playing
+    if (e.cancelable) e.preventDefault();
+
+    if (!gameStarted || isGameOver || isPaused) return;
+
+    const touch = e.touches[0];
+    const x = touch.clientX;
+    const width = window.innerWidth;
+
+    // Divide screen into 3 zones: 
+    // Left 33% (Turn Left), Right 33% (Turn Right), Middle 33% (Boost)
+    if (x < width * 0.33) {
+        // Tap the left side to turn
+        inputQueue.push('LEFT');
+    } else if (x > width * 0.66) {
+        // Tap the right side to turn
+        inputQueue.push('RIGHT');
+    } else {
+        // Touch and hold the center to boost
+        currentMoveInterval = BOOST_MOVE_INTERVAL;
+    }
+}, { passive: false });
+
+window.addEventListener('touchend', (e) => {
+    // When finger is lifted, return to normal speed
+    currentMoveInterval = BASE_MOVE_INTERVAL;
 });
 
         function performMovementStep() {
