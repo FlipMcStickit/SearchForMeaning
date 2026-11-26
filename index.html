@@ -11,15 +11,52 @@
         button { background: #00ffaa; border: none; padding: 10px 20px; font-weight: bold; cursor: pointer; margin-top: 20px; }
         #pause-ui { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 3em; display: none; pointer-events: none; }
 
-        #start-screen { 
+                #start-screen { 
             position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
-            background: rgba(0,0,0,0.85); display: flex; flex-direction: column; 
+            background: radial-gradient(circle, #0a0a20 0%, #000 100%); 
+            display: flex; flex-direction: column; 
             align-items: center; justify-content: center; z-index: 100; 
-            color: white; text-align: center; font-family: 'Segoe UI', sans-serif;
+            color: white; text-align: center;
         }
-        .instructions { margin: 20px 0; font-size: 1.2em; color: #00ffaa; }
-        .instructions p { margin: 5px 0; }
-        .lore { font-style: italic; color: #aaa; margin-top: 30px; line-height: 1.5; }
+        .title-main {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 3em;
+            color: #00ffaa;
+            text-shadow: 0 0 20px #00ffaa, 0 0 40px #00ffaa;
+            margin-bottom: 10px;
+            letter-spacing: 4px;
+        }
+        .tagline {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1.2em;
+            color: #ff00ff;
+            text-shadow: 0 0 10px #ff00ff;
+            font-style: italic;
+            margin-bottom: 40px;
+        }
+        .instructions { 
+            margin: 20px 0; 
+            font-family: 'Courier New', monospace; 
+            font-size: 1.1em; 
+            color: #00ffaa; 
+            background: rgba(0, 255, 170, 0.05);
+            padding: 20px 40px;
+            border: 1px solid rgba(0, 255, 170, 0.2);
+            border-radius: 5px;
+            line-height: 1.8;
+        }
+        .instructions b { color: #fff; text-shadow: 0 0 5px #fff; }
+        .instructions span { color: #aaa; font-size: 0.9em; margin-left: 10px; }
+
+        .footer-lore {
+            position: absolute;
+            bottom: 40px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            color: rgba(255, 255, 255, 0.3);
+            letter-spacing: 3px;
+            font-style: italic;
+        }
     </style>
 </head>
 <body>
@@ -27,15 +64,18 @@
     <div id="pause-ui">PAUSED</div>
 
     <div id="start-screen">
-        <h1 style="color: #00ffaa; text-shadow: 0 0 20px #00ffaa;">KEVIN: A SPHERICAL ODYSSEY</h1>
+        <h1 class="title-main">KEVIN : A SPHERICAL ODYSSEY</h1>
+        <p class="tagline">"Consume The Magenta Flames Of Knowledge"</p>
+
         <div class="instructions">
-            <p><strong>A</strong> : LEFT</p>
-            <p><strong>D</strong> : RIGHT</p>
-            <p><strong>W</strong> or <strong class="arrow">↑</strong> : BOOST</p>
-            <p><strong>SPACE</strong> : START / PAUSE</p>
+            <p><b>A / D</b> or <b>← →</b> <span>TURN LEFT / RIGHT</span></p>
+            <p><b>W</b> or <b>↑</b> <span>HOLD TO BOOST</span></p>
+            <p><b>SPACEBAR</b> <span>START / PAUSE</span></p>
         </div>
-        <p class="lore">"Good Luck In Kevin's Search For Knowledge. <br> May Your Memory Become Long."</p>
-        <button onclick="startGame()">BEGIN THE SEARCH</button>
+
+        <button onclick="startGame()" style="margin-top: 30px; padding: 15px 30px; font-family: 'Orbitron', sans-serif; letter-spacing: 2px;">INITIATE SEARCH</button>
+
+        <p class="footer-lore">"May your memory grow long."</p>
     </div>
 
     <div id="game-over">
@@ -338,10 +378,26 @@ glowTexture.colorSpace = THREE.SRGBColorSpace;            const scale = 0.4;
             const positionAttribute = geometry.getAttribute('position');
             const vertex = new THREE.Vector3();
 
-            // Apply per-vertex scaling to create the "cracked/jagged" look
+            // Task 1: Use a Map to ensure duplicate vertices at the same corner 
+            // receive the same displacement factor.
+            const displacementMap = new Map();
+
             for (let i = 0; i < positionAttribute.count; i++) {
                 vertex.fromBufferAttribute(positionAttribute, i);
-                const factor = 0.4 + Math.random() * 0.5; 
+
+                // Create a unique key based on the vertex position rounded to 3 decimals
+                const key = `${vertex.x.toFixed(3)},${vertex.y.toFixed(3)},${vertex.z.toFixed(3)}`;
+
+                let factor;
+                if (displacementMap.has(key)) {
+                    // If we've seen this coordinate before, use the existing factor
+                    factor = displacementMap.get(key);
+                } else {
+                    // Otherwise, create a new one and save it in the Map
+                    factor = 0.4 + Math.random() * 0.5;
+                    displacementMap.set(key, factor);
+                }
+
                 vertex.multiplyScalar(factor);
                 positionAttribute.setXYZ(i, vertex.x, vertex.y, vertex.z);
             }
@@ -355,12 +411,12 @@ glowTexture.colorSpace = THREE.SRGBColorSpace;            const scale = 0.4;
             const material = new THREE.MeshPhongMaterial({ color: randomColor, flatShading: true, shininess: 100 });
             const obs = new THREE.Mesh(geometry, material);
 
-            // Randomize size: Most are normal, but some scale up significantly (up to 250%)
-            // This creates that "giant asteroid" feel
+            // Randomize size: Most are normal, but some scale up significantly
             const scaleFactor = 0.7 + Math.random() * 2.3; 
             obs.scale.setScalar(scaleFactor);
 
-            // Compute the actual radius based on the distorted geometry and the scale applied
+            // Task 2: Compute the bounding sphere AFTER displacement and scaling
+            // are applied so the hit radius is perfectly accurate.
             geometry.computeBoundingSphere();
             obs.userData.hitRadius = geometry.boundingSphere.radius * scaleFactor;
 
@@ -383,10 +439,10 @@ glowTexture.colorSpace = THREE.SRGBColorSpace;            const scale = 0.4;
             const { maxParticles, positions, colors, baseColors, velocities, lives, maxLives, active, mesh } = emberSystem;
 
             // 1. Spawning (Find empty slots and fill them)
-            for (let i = 0; i < snakeMeshes.length; i++) {
-                if (Math.random() < 0.4) { 
-                    // Find the first inactive slot in our pool
-                    for (let s = 0; s < maxParticles; s++) {
+   for (let i = 1; i < snakeMeshes.length; i++) {
+    if (Math.random() < 0.4) { 
+        // Find the first inactive slot in our pool
+        for (let s = 0; s < maxParticles; s++) {
                         if (active[s] === 0) {
                             active[s] = 1;
                             const pos = snakeMeshes[i].position;
@@ -656,17 +712,20 @@ if (collision) { endGame(); return; }
                                 mesh.scale.setScalar(pulse);
                             }
                         }
-                        visualHeadPos.lerp(snakeMeshes[0].position, 0.1);
+                        // We lowered 0.1 to 0.05 so the 'ghost' head trails the snake more smoothly
+                        visualHeadPos.lerp(snakeMeshes[0].position, 0.05);
 
                         _v1.copy(visualHeadPos).normalize().multiplyScalar(18);
-                        camera.position.lerp(_v1, 0.05);
+                        // We lowered 0.05 to 0.02 so the camera 'drifts' into position
+                        camera.position.lerp(_v1, 0.02);
 
                         _headNormal.copy(visualHeadPos).normalize();
                         _desiredUp.copy(moveDir).projectOnPlane(_headNormal).normalize();
 
                         cameraTargetUp.copy(_desiredUp);
 
-                        currentCameraUp.lerp(cameraTargetUp, 0.05);
+                        // We lowered 0.05 to 0.02 so the camera rotation is gradual and cinematic
+                        currentCameraUp.lerp(cameraTargetUp, 0.02);
                         camera.up.copy(currentCameraUp);
                         camera.lookAt(visualHeadPos);
 
