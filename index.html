@@ -86,12 +86,19 @@
     </div>
 
     <script type="importmap">
-        { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+        { 
+            "imports": { 
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            } 
+        }
     </script>
 
     <script type="module">
         import * as THREE from 'three';
-
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
         const RADIUS = 10;
         const STEP_DISTANCE = 0.45;
         const BASE_MOVE_INTERVAL = 150; 
@@ -155,10 +162,22 @@
 
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
+const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
+
+        const composer = new EffectComposer(renderer);
+        const renderPass = new RenderPass(scene, camera);
+        composer.addPass(renderPass);
+
+        const bloomPass = new UnrealBloomPass(
+            new THREE.Vector2(window.innerWidth, window.innerHeight),
+            0.75,  // Strength
+            0.4,  // Radius
+            2.0   // THRESHOLD 
+        );
+        composer.addPass(bloomPass);
 
         const canvas = document.createElement('canvas');
         canvas.width = 512; canvas.height = 512;
@@ -568,7 +587,14 @@ glowTexture.colorSpace = THREE.SRGBColorSpace;            const scale = 0.4;
 
             const iceShades = [0xffffff, 0xe0f7fa, 0x81d4fa, 0x03a9f4, 0x01579b];
             const randomColor = iceShades[Math.floor(Math.random() * iceShades.length)];
-            const material = new THREE.MeshPhongMaterial({ color: randomColor, flatShading: true, shininess: 100 });
+
+            // We switched to MeshLambertMaterial. 
+            // This removes the "specular" highlight (the glare) entirely.
+            const material = new THREE.MeshLambertMaterial({ 
+                color: randomColor, 
+                flatShading: true 
+            });
+
             const obs = new THREE.Mesh(geometry, material);
 
             const scaleFactor = 0.7 + Math.random() * 2.3; 
@@ -960,13 +986,14 @@ if (collision) { endGame(); return; }
                     p.material.opacity = (1.0 - lifeProgress) * 1.2; 
                 });
             }
-            renderer.render(scene, camera);
+                        composer.render();
         }
 
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
+            composer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         });
 
