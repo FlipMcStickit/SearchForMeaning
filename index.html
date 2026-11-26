@@ -21,42 +21,68 @@
         }
         .title-main {
             font-family: 'Orbitron', sans-serif;
-            font-size: 3em;
+            font-size: 2.8em;
             color: #00ffaa;
             text-shadow: 0 0 20px #00ffaa, 0 0 40px #00ffaa;
-            margin-bottom: 10px;
-            letter-spacing: 4px;
+            margin-bottom: 5px;
+            letter-spacing: 3px;
         }
         .tagline {
             font-family: 'Orbitron', sans-serif;
-            font-size: 1.2em;
+            font-size: 1.1em;
             color: #ff00ff;
             text-shadow: 0 0 10px #ff00ff;
             font-style: italic;
-            margin-bottom: 40px;
+            margin-bottom: 30px;
         }
         .instructions { 
-            margin: 20px 0; 
+            margin: 10px 0; 
             font-family: 'Courier New', monospace; 
-            font-size: 1.1em; 
+            font-size: 0.95em; 
             color: #00ffaa; 
             background: rgba(0, 255, 170, 0.05);
-            padding: 20px 40px;
+            padding: 20px;
             border: 1px solid rgba(0, 255, 170, 0.2);
             border-radius: 5px;
-            line-height: 1.8;
+            line-height: 1.6;
         }
-        .instructions b { color: #fff; text-shadow: 0 0 5px #fff; }
-        .instructions span { color: #aaa; font-size: 0.9em; margin-left: 10px; }
+        .control-group { margin-bottom: 15px; }
+        .control-group:last-child { margin-bottom: 0; }
+
+        .touch-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            margin-top: 15px;
+        }
+        .phone-mockup {
+            width: 50px;
+            height: 85px;
+            border: 2px solid #00ffaa;
+            border-radius: 6px;
+            background: linear-gradient(90deg, rgba(0,255,170,0.3) 0%, transparent 40%, transparent 60%, rgba(0,255,170,0.3) 100%);
+        }
+        .touch-desc {
+            text-align: left;
+            font-size: 0.85em;
+            color: #aaa;
+        }
+        .touch-desc b { color: #fff; }
 
         .footer-lore {
-            position: absolute;
-            bottom: 40px;
+            margin-top: 40px;
             font-family: 'Courier New', monospace;
             font-size: 0.9em;
             color: rgba(255, 255, 255, 0.3);
             letter-spacing: 3px;
             font-style: italic;
+        }
+        .credits {
+            margin-top: 20px;
+            font-size: 0.7em;
+            color: rgba(255, 255, 255, 0.2);
+            letter-spacing: 1px;
         }
     </style>
 </head>
@@ -65,18 +91,28 @@
     <div id="pause-ui">PAUSED</div>
 
     <div id="start-screen">
-        <h1 class="title-main">KEVIN : A SPHERICAL ODYSSEY</h1>
-        <p class="tagline">"Consume The Magenta Flames Of Knowledge"</p>
+        <h1 class="title-main">Kevin: A Spherical Odyssey</h1>
+        <p class="tagline">Consume the Magenta Flames of Knowledge to increase your memory.</p>
 
         <div class="instructions">
-            <p><b>A / D</b> or <b>← →</b> <span>TURN LEFT / RIGHT</span></p>
-            <p><b>W</b> or <b>↑</b> <span>HOLD TO BOOST</span></p>
-            <p><b>SPACEBAR</b> <span>START / PAUSE</span></p>
+            <div class="control-group">
+                <b>KEYBOARD:</b> A/D or ←/→ to turn<br>
+                Hold W or ↑ to boost • SPACE to start/pause/restart
+            </div>
+            <div class="touch-container">
+                <div class="phone-mockup"></div>
+                <div class="touch-desc">
+                    <b>TOUCH:</b><br>
+                    Tap sides to turn<br>
+                    Tap & hold center to boost
+                </div>
+            </div>
         </div>
 
         <button onclick="startGame()" style="margin-top: 30px; padding: 15px 30px; font-family: 'Orbitron', sans-serif; letter-spacing: 2px;">INITIATE SEARCH</button>
 
-        <p class="footer-lore">"May your memory grow long."</p>
+        <p class="footer-lore">"May your memory become long."</p>
+        <div class="credits">Written using Gemma 4 26b. Quant by Unsloth.</div>
     </div>
 
     <div id="game-over">
