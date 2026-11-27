@@ -178,7 +178,7 @@
         let moveDir = new THREE.Vector3(0, 1, 0);
         let inputQueue = [];
         let lastStepTime = 0;
-        let food;
+        let foods = [];
         let obstacles = [];
         let vortexSystem = {
             meshSpokes: null,
@@ -462,40 +462,47 @@
         const mainLight = new THREE.PointLight(0xe0f7fa, 50, 50);
         scene.add(mainLight);
 
-        const foodGroup = new THREE.Group();
-        const canvasF = document.createElement('canvas');
-        canvasF.width = 64; canvasF.height = 64;
-        const ctxF = canvasF.getContext('2d');
-        const gradF = ctxF.createRadialGradient(32, 32, 0, 32, 32, 32);
-        gradF.addColorStop(0, 'rgba(255, 100, 255, 1)'); 
-        gradF.addColorStop(0.4, 'rgba(200, 0, 255, 0.6)'); 
-        gradF.addColorStop(1, 'rgba(0, 0, 0, 0)');
-        ctxF.fillStyle = gradF;
-        ctxF.fillRect(0, 0, 64, 64);
-        const particleTexture = new THREE.CanvasTexture(canvasF);
-        particleTexture.colorSpace = THREE.SRGBColorSpace;
+const canvasF = document.createElement('canvas');
+canvasF.width = 64; canvasF.height = 64;
+const ctxF = canvasF.getContext('2d');
+const gradF = ctxF.createRadialGradient(32, 32, 0, 32, 32, 32);
+gradF.addColorStop(0, 'rgba(255, 100, 255, 1)'); 
+gradF.addColorStop(0.4, 'rgba(200, 0, 255, 0.6)'); 
+gradF.addColorStop(1, 'rgba(0, 0, 0, 0)');
+ctxF.fillStyle = gradF;
+ctxF.fillRect(0, 0, 64, 64);
+const particleTexture = new THREE.CanvasTexture(canvasF);
+particleTexture.colorSpace = THREE.SRGBColorSpace;
 
-        const particleCount = 40;
-        const particles = [];
-        for (let i = 0; i < particleCount; i++) {
-            const spriteMat = new THREE.SpriteMaterial({ 
-                map: particleTexture, 
-                transparent: true, 
-                blending: THREE.AdditiveBlending, 
-                depthWrite: false 
-            });
-            const sprite = new THREE.Sprite(spriteMat);
-            sprite.userData = { 
-                speed: 0.2 + Math.random() * 0.3, 
-                drift: (Math.random() - 0.5) * 0.1, 
-                life: Math.random() 
-            };
-            foodGroup.add(sprite);
-            particles.push(sprite);
-        }
-        scene.add(foodGroup);
-        food = { position: new THREE.Vector3(), mesh: foodGroup, particles: particles };
+// This function creates one single food object
+function createFoodItem() {
+    const group = new THREE.Group();
+    scene.add(group);
+    const itemParticles = [];
+    const particleCount = 40;
+    for (let i = 0; i < particleCount; i++) {
+        const spriteMat = new THREE.SpriteMaterial({ 
+            map: particleTexture, 
+            transparent: true, 
+            blending: THREE.AdditiveBlending, 
+            depthWrite: false 
+        });
+        const sprite = new THREE.Sprite(spriteMat);
+        sprite.userData = { 
+            speed: 0.2 + Math.random() * 0.3, 
+            drift: (Math.random() - 0.5) * 0.1, 
+            life: Math.random() 
+        };
+        group.add(sprite);
+        itemParticles.push(sprite);
+    }
+    return { position: new THREE.Vector3(), mesh: group, particles: itemParticles };
+}
 
+// Create our starting two foods
+for(let i = 0; i < 2; i++) {
+    foods.push(createFoodItem());
+}
         function setupEmberSystem() {
             const max = emberSystem.maxParticles;
             emberSystem.positions = new Float32Array(max * 3);
@@ -866,21 +873,21 @@ glowTexture.colorSpace = THREE.SRGBColorSpace;            const scale = 0.4;
 
             return segmentGroup;
         }
-        function spawnFood() {
-            let validSpawn = false, attempts = 0;
-            let newFoodPos = new THREE.Vector3();
-            while (!validSpawn && attempts < 100) {
-                attempts++;
-                newFoodPos.copy(randomPointOnSphere(RADIUS));
+function spawnFood(index) {
+    let validSpawn = false, attempts = 0;
+    let newFoodPos = new THREE.Vector3();
+    while (!validSpawn && attempts < 100) {
+        attempts++;
+        newFoodPos.copy(randomPointOnSphere(RADIUS));
 
-                let collision = false;
-                for (let obs of obstacles) if (newFoodPos.distanceTo(obs.position) < obs.userData.hitRadius * 1.5) collision = true;
-                for (let pos of snakePositions) if (newFoodPos.distanceTo(pos) < 1.5) collision = true;
-                if (!collision) validSpawn = true;
-            }
-            food.position.copy(newFoodPos);
-            food.mesh.position.copy(newFoodPos);
-        }
+        let collision = false;
+        for (let obs of obstacles) if (newFoodPos.distanceTo(obs.position) < obs.userData.hitRadius * 1.5) collision = true;
+        for (let pos of snakePositions) if (newFoodPos.distanceTo(pos) < 1.5) collision = true;
+        if (!collision) validSpawn = true;
+    }
+    foods[index].position.copy(newFoodPos);
+    foods[index].mesh.position.copy(newFoodPos);
+}
 
         function spawnObstacle() {
             const baseSize = 0.6;
@@ -1068,7 +1075,44 @@ glowTexture.colorSpace = THREE.SRGBColorSpace;            const scale = 0.4;
             document.getElementById('score').innerText = "0";
             document.getElementById('game-over').style.display = 'none';
             for(let i=0; i<30; i++) spawnObstacle();
-            spawnFood();
+            // Clear old food from scene and reset the list
+            foods.forEach(f => scene.remove(f.mesh));
+            foods = [];
+            // Create 2 new foods
+            for(let i=0; i<2; i++) {
+                // We use the logic from createFoodItem, but we'll just call spawnFood to place them
+                // Actually, let's just re-run the creation logic by calling the setup again
+                // To keep it simple for you, we'll just call the logic that populates the array
+            }
+            // Re-run the creation logic for 2 items
+            for(let i=0; i<2; i++) {
+                // Re-creating the logic specifically for initGame
+                const canvasF = document.createElement('canvas');
+                canvasF.width = 64; canvasF.height = 64;
+                const ctxF = canvasF.getContext('2d');
+                const gradF = ctxF.createRadialGradient(32, 32, 0, 32, 32, 32);
+                gradF.addColorStop(0, 'rgba(255, 100, 255, 1)'); 
+                gradF.addColorStop(0.4, 'rgba(200, 0, 255, 0.6)'); 
+                gradF.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                ctxF.fillStyle = gradF;
+                ctxF.fillRect(0, 0, 64, 64);
+                const pTex = new THREE.CanvasTexture(canvasF);
+                pTex.colorSpace = THREE.SRGBColorSpace;
+
+                const group = new THREE.Group();
+                scene.add(group);
+                const itemParticles = [];
+                for (let p = 0; p < 40; p++) {
+                    const spriteMat = new THREE.SpriteMaterial({ map: pTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+                    const sprite = new THREE.Sprite(spriteMat);
+                    sprite.userData = { speed: 0.2 + Math.random() * 0.3, drift: (Math.random() - 0.5) * 0.1, life: Math.random() };
+                    group.add(sprite);
+                    itemParticles.push(sprite);
+                }
+                foods.push({ position: new THREE.Vector3(), mesh: group, particles: itemParticles });
+            }
+            // Position them
+            for(let i=0; i<2; i++) spawnFood(i);
         }
 
  // --- KEYBOARD CONTROLS ---
@@ -1182,12 +1226,19 @@ if (!collision) {
 if (collision) { endGame(); return; }
 
             // 4. Food & Growth
-            if (newPos.distanceTo(food.position) < 0.6) {
+            let eatenIndex = -1;
+            for (let i = 0; i < foods.length; i++) {
+                if (newPos.distanceTo(foods[i].position) < 0.6) {
+                    eatenIndex = i;
+                    break;
+                }
+            }
+
+            if (eatenIndex !== -1) {
                 score += 1; 
                 document.getElementById('score').innerText = score;
-                // Trigger the explosion! We pass the food position and the current head position
-                explodeFood(food.position, snakePositions[0]);
-                spawnFood();
+                explodeFood(foods[eatenIndex].position, snakePositions[0]);
+                spawnFood(eatenIndex);
             } else { 
                 snakePositions.pop(); 
             }
@@ -1281,30 +1332,25 @@ if (collision) { endGame(); return; }
                     }
                 } 
             }
-            if (food.mesh) {
+            foods.forEach((f) => {
                 const time = performance.now() * 0.005;
-                _v1.copy(food.position).normalize();
-                food.mesh.quaternion.setFromUnitVectors(_v3.set(0, 1, 0), _v1);
+                _v1.copy(f.position).normalize();
+                f.mesh.quaternion.setFromUnitVectors(_v3.set(0, 1, 0), _v1);
 
-                // --- NEW BOBBING EFFECT ---
-                // This calculates a smooth up-and-down motion using a sine wave
-                // Math.sin creates the wave, 2.0 is the speed, and 0.2 is the height of the bob
                 const bobAmount = Math.sin(time * 2.0) * 0.2; 
-                food.mesh.position.copy(food.position).addScaledVector(_v1, bobAmount);
-                // --------------------------
+                f.mesh.position.copy(f.position).addScaledVector(_v1, bobAmount);
 
-                food.particles.forEach((p, i) => {
+                f.particles.forEach((p, i) => {
                     const lifeProgress = (time * p.userData.speed + p.userData.life) % 1;
 
-                    // Create 3 overlapping flame shapes based on the particle index
                     let hMult = 1.0;
                     let wMult = 1.0;
                     if (i % 3 === 0) { 
-                        hMult = 1.5; wMult = 0.4; // The "Core": Tall and narrow
+                        hMult = 1.5; wMult = 0.4; 
                     } else if (i % 3 === 1) { 
-                        hMult = 1.0; wMult = 0.9; // The "Body": Medium
+                        hMult = 1.0; wMult = 0.9; 
                     } else { 
-                        hMult = 0.6; wMult = 1.5; // The "Base": Wide and short
+                        hMult = 0.6; wMult = 1.5; 
                     }
 
                     const height = lifeProgress * 0.8 * hMult;
@@ -1316,12 +1362,11 @@ if (collision) { endGame(); return; }
                         p.userData.drift * Math.cos(time + i) * width
                     );
 
-                    // Increased scale and luminosity for better visibility
                     const scale = (1.0 - lifeProgress) * 0.8; 
                     p.scale.set(scale, scale, scale);
                     p.material.opacity = (1.0 - lifeProgress) * 1.2; 
                 });
-            }
+            });
                         composer.render();
         }
 
