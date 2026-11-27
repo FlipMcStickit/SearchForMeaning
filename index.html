@@ -339,7 +339,8 @@
                     vortexSystem.spokeSegments.push({ 
                         offset: offset, 
                         t0: (i / numRings) * Math.PI, 
-                        t1: ((i + 1) / numRings) * Math.PI 
+                        t1: ((i + 1) / numRings) * Math.PI,
+                        vibrateFreq: Math.random() * 20 + 10 // New: random vibration speed
                     });
                 }
             }
@@ -351,7 +352,8 @@
                     vortexSystem.ringSegments.push({ 
                         offset: offset, 
                         t0: (i / numSpokes) * Math.PI * 2, 
-                        t1: ((i + 1) / numSpokes) * Math.PI * 2 
+                        t1: ((i + 1) / numSpokes) * Math.PI * 2,
+                        vibrateFreq: Math.random() * 20 + 10 // New: random vibration speed
                     });
                 }
             }
@@ -404,13 +406,13 @@
                     const theta = seg.offset + (t * twist) + tGlobal;
                     const phi = t; 
 
-                    // --- THE WARP LOGIC ---
-                    // We create a "deformation" value using both theta and phi.
-                    // This makes the grid ripple unevenly rather than in a perfect circle.
-                    const deformation = Math.sin(theta * 1.5 + tGlobal) * Math.cos(phi * 2.0);
-                    const r = shellRadius + (Math.sin(phi * 2.0 + tGlobal) + deformation * 1.0) * waviness;
-                    // ----------------------
-
+                    // --- THE UNDULATION LOGIC ---
+                    // This creates a smooth, traveling sine wave moving along the vertical axis (phi)
+                    const undulation = Math.sin(phi * 5.0 + tGlobal * 2.5) * 0.5;
+                    // This adds a secondary wobble for extra complexity
+                    const deformation = Math.cos(theta * 2.0 + tGlobal) * 0.5;
+                    const r = shellRadius + (undulation + deformation) * waviness;
+                    // ----------------------------
                     sPos.setXYZ(vIdx + j, r * Math.sin(phi) * Math.cos(theta), r * Math.sin(phi) * Math.sin(theta), r * Math.cos(phi));
                     const color = new THREE.Color().setHSL((theta * 0.05 + tGlobal * 0.1) % 1, 0.7, 0.5);
                     sCol.setXYZ(vIdx + j, color.r, color.g, color.b);
@@ -429,11 +431,13 @@
                     const theta = t + tGlobal;
                     const phi = seg.offset;
 
-                    // --- THE WARP LOGIC (Same math as above for consistency) ---
-                    const deformation = Math.sin(theta * 2.0 + tGlobal) * Math.cos(phi * 3.0);
-                    const r = shellRadius + (Math.sin(phi * 2.0 + tGlobal) + deformation * 0.5) * waviness;
-                    // ----------------------
-
+                    // --- THE UNDULATION LOGIC ---
+                    // This creates a smooth, traveling sine wave moving around the horizontal axis (theta)
+                    const undulation = Math.sin(theta * 4.0 + tGlobal * 2.0) * 1.0;
+                    // This adds a secondary wobble for extra complexity
+                    const deformation = Math.cos(phi * 2.0 + tGlobal) * 0.5;
+                    const r = shellRadius + (undulation + deformation) * waviness;
+                    // ----------------------------
                     rPos.setXYZ(vIdx + j, r * Math.sin(phi) * Math.cos(theta), r * Math.sin(phi) * Math.sin(theta), r * Math.cos(phi));
                     const color = new THREE.Color().setHSL((phi * 0.1 + tGlobal * 0.1) % 1, 0.5, 0.4);
                     rCol.setXYZ(vIdx + j, color.r, color.g, color.b);
