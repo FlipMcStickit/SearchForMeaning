@@ -180,6 +180,19 @@
         let lastStepTime = 0;
         let food;
         let obstacles = [];
+        let vortexSystem = {
+            meshSpokes: null,
+            meshRings: null,
+            spokeSegments: [],
+            ringSegments: [],
+            numRings: 60,        
+            numSpokes: 30,        
+            shellRadius: 30,      
+            twist: 2.0,           // How much the spokes spiral
+            waviness: 5.0,        
+            speed: 0.3
+            
+        };
         let emberSystem = {
             mesh: null,
             maxParticles: 1000,
@@ -225,7 +238,7 @@
 
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+		const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
@@ -282,12 +295,14 @@ const renderer = new THREE.WebGLRenderer({ antialias: true });
                 varying vec3 vEyeVector;
                 void main() {
                     float fresnel = pow(1.0 - abs(dot(vNormal, normalize(vEyeVector))), 8.0);
+                    float shimmer = sin(uTime * 4.0 + vNormal.x * 15.0) * 0.2 + 0.8;
 
-                    float shimmer = sin(uTime * 3.0 + vNormal.x * 10.0 + vNormal.y * 10.0) * 0.15 + 0.85;
-
-                    vec3 cyan = vec3(0.0, 1.0, 0.67);
-                    vec3 gold = vec3(1.0, 0.4, 0.0);
-                    vec3 color = mix(cyan, gold, sin(uTime * 0.5) * 0.5 + 0.5);
+                    // Psychedelic color shifting
+                    vec3 color = vec3(
+                        0.5 + 0.5 * sin(uTime * 0.7),
+                        0.5 + 0.5 * sin(uTime * 0.9 + 2.0),
+                        0.5 + 0.5 * sin(uTime * 1.1 + 4.0)
+                    );
 
                     gl_FragColor = vec4(color, fresnel * shimmer);
                 }
@@ -308,17 +323,124 @@ const renderer = new THREE.WebGLRenderer({ antialias: true });
         const planetMaterial = new THREE.MeshPhongMaterial({ 
             map: cloudTexture,
             transparent: true, 
-            opacity: 0.4,        
+            opacity: 0.8,        
             side: THREE.DoubleSide 
         });
         const planet = new THREE.Mesh(new THREE.SphereGeometry(RADIUS, 64, 64), planetMaterial);
         scene.add(planet);
 
-        const starGeo = new THREE.BufferGeometry();
-        const starCoords = [];
-        for(let i=0; i<1000; i++) starCoords.push((Math.random()-0.5)*400, (Math.random()-0.5)*400, (Math.random()-0.5)*400);
-        starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starCoords, 3));
-        scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.5 })));
+        function setupVortex() {
+            const { numRings, numSpokes } = vortexSystem;
+
+            // 1. Create Spoke Segments (Vertical Spirals)
+            for (let s = 0; s < numSpokes; s++) {
+                const offset = (s / numSpokes) * Math.PI * 2;
+                for (let i = 0; i < numRings; i++) {
+                    vortexSystem.spokeSegments.push({ 
+                        offset: offset, 
+                        t0: (i / numRings) * Math.PI, 
+                        t1: ((i + 1) / numRings) * Math.PI 
+                    });
+                }
+            }
+
+            // 2. Create Ring Segments (Horizontal Circles)
+            for (let r = 0; r < numRings; r++) {
+                const offset = (r / numRings) * Math.PI;
+                for (let i = 0; i < numSpokes; i++) {
+                    vortexSystem.ringSegments.push({ 
+                        offset: offset, 
+                        t0: (i / numSpokes) * Math.PI * 2, 
+                        t1: ((i + 1) / numSpokes) * Math.PI * 2 
+                    });
+                }
+            }
+
+            // Helper to create the geometry
+            const createMesh = (segmentCount) => {
+                const geo = new THREE.BufferGeometry();
+                const pos = new Float32Array(segmentCount * 2 * 3);
+                const col = new Float32Array(segmentCount * 2 * 3);
+                geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+                geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+                const mat = new THREE.LineBasicMaterial({
+                    vertexColors: true,
+                    transparent: true,
+                    opacity: 0.3,
+                    blending: THREE.AdditiveBlending
+                });
+                return { geo, mat };
+            };
+
+            // Setup Spoke Mesh
+            const spokeData = createMesh(vortexSystem.spokeSegments.length);
+            vortexSystem.meshSpokes = new THREE.LineSegments(spokeData.geo, spokeData.mat);
+            scene.add(vortexSystem.meshSpokes);
+
+            // Setup Ring Mesh
+            const ringData = createMesh(vortexSystem.ringSegments.length);
+            vortexSystem.meshRings = new THREE.LineSegments(ringData.geo, ringData.mat);
+            scene.add(vortexSystem.meshRings);
+        }
+		
+		setupVortex();
+
+        function updateVortex(time) {
+            if (!vortexSystem.meshSpokes || !vortexSystem.meshRings) return;
+
+            const { spokeSegments, ringSegments, shellRadius, waviness, twist, speed } = vortexSystem;
+            const tGlobal = time * 0.001 * speed;
+
+            // Update Spoke Spirals
+            const sPos = vortexSystem.meshSpokes.geometry.attributes.position;
+            const sCol = vortexSystem.meshSpokes.geometry.attributes.color;
+            for (let i = 0; i < spokeSegments.length; i++) {
+                const seg = spokeSegments[i];
+                const vIdx = i * 2;
+                for (let j = 0; j < 2; j++) {
+                    const t = (j === 0) ? seg.t0 : seg.t1;
+
+                    // The "Twist": theta changes based on latitude (t)
+                    const theta = seg.offset + (t * twist) + tGlobal;
+                    const phi = t; 
+
+                    // --- THE WARP LOGIC ---
+                    // We create a "deformation" value using both theta and phi.
+                    // This makes the grid ripple unevenly rather than in a perfect circle.
+                    const deformation = Math.sin(theta * 1.5 + tGlobal) * Math.cos(phi * 2.0);
+                    const r = shellRadius + (Math.sin(phi * 2.0 + tGlobal) + deformation * 1.0) * waviness;
+                    // ----------------------
+
+                    sPos.setXYZ(vIdx + j, r * Math.sin(phi) * Math.cos(theta), r * Math.sin(phi) * Math.sin(theta), r * Math.cos(phi));
+                    const color = new THREE.Color().setHSL((theta * 0.05 + tGlobal * 0.1) % 1, 0.7, 0.5);
+                    sCol.setXYZ(vIdx + j, color.r, color.g, color.b);
+                }
+            }
+            sPos.needsUpdate = true; sCol.needsUpdate = true;
+
+            // Update Ring Circles
+            const rPos = vortexSystem.meshRings.geometry.attributes.position;
+            const rCol = vortexSystem.meshRings.geometry.attributes.color;
+            for (let i = 0; i < ringSegments.length; i++) {
+                const seg = ringSegments[i];
+                const vIdx = i * 2;
+                for (let j = 0; j < 2; j++) {
+                    const t = (j === 0) ? seg.t0 : seg.t1;
+                    const theta = t + tGlobal;
+                    const phi = seg.offset;
+
+                    // --- THE WARP LOGIC (Same math as above for consistency) ---
+                    const deformation = Math.sin(theta * 2.0 + tGlobal) * Math.cos(phi * 3.0);
+                    const r = shellRadius + (Math.sin(phi * 2.0 + tGlobal) + deformation * 0.5) * waviness;
+                    // ----------------------
+
+                    rPos.setXYZ(vIdx + j, r * Math.sin(phi) * Math.cos(theta), r * Math.sin(phi) * Math.sin(theta), r * Math.cos(phi));
+                    const color = new THREE.Color().setHSL((phi * 0.1 + tGlobal * 0.1) % 1, 0.5, 0.4);
+                    rCol.setXYZ(vIdx + j, color.r, color.g, color.b);
+                }
+            }
+            rPos.needsUpdate = true; rCol.needsUpdate = true;
+        }
 
         scene.add(new THREE.AmbientLight(0x404040, 2));
         const mainLight = new THREE.PointLight(0x00ffaa, 100, 50);
@@ -553,6 +675,8 @@ const renderer = new THREE.WebGLRenderer({ antialias: true });
             mesh.geometry.attributes.position.needsUpdate = true;
             mesh.geometry.attributes.color.needsUpdate = true;
         }
+		
+
 
         function createHead() {
             const group = new THREE.Group();
@@ -947,6 +1071,7 @@ if (collision) { endGame(); return; }
                 if (!isPaused) {
                     updateEmbers(currentTime);
                     updateFoodExplosions();
+					updateVortex(currentTime);
                     if (currentTime - lastStepTime >= currentMoveInterval) { performMovementStep(); lastStepTime = currentTime; }
                     visualSnakePositions[0].lerp(snakePositions[0], 0.5);
 
