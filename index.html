@@ -230,12 +230,18 @@
         let cameraTargetUp = new THREE.Vector3(0, 1, 0);
         let currentCameraUp = new THREE.Vector3(0, 1, 0);
 
-        const _v1 = new THREE.Vector3();
-        const _v2 = new THREE.Vector3();
-        const _v3 = new THREE.Vector3();
-        const _headNormal = new THREE.Vector3();
-        const _desiredUp = new THREE.Vector3();
-        const _smokeVec = new THREE.Vector3();
+const _v1 = new THREE.Vector3();
+const _v2 = new THREE.Vector3();
+const _v3 = new THREE.Vector3();
+const _headNormal = new THREE.Vector3();
+const _desiredUp = new THREE.Vector3();
+const _smokeVec = new THREE.Vector3();
+// New Scratchpad Vectors & Timers
+const _sideDir = new THREE.Vector3();
+const _surfaceNormal = new THREE.Vector3();
+let emberNextIndex = 0;
+let prevFrameTime = 0;
+let deltaTime = 0;
 		
         function randomPointOnSphere(radius) {
             const theta = Math.random() * Math.PI * 2;
@@ -342,58 +348,152 @@
         scene.add(planet);
 
         function setupVortex() {
-            const { numRings, numSpokes } = vortexSystem;
+            const { numRings, numSpokes, shellRadius, twist, waviness, speed } = vortexSystem;
 
-            // 1. Create Spoke Segments (Vertical Spirals)
+            // --- HELPER: GLSL COLOR FUNCTION ---
+            // This is a tiny piece of code we'll use in the shader to turn HSL into RGB
+            const hsvToRgbShader = `
+                vec3 hsv2rgb(vec3 c) {
+                    vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+                    vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+                    return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+                }
+            `;
+
+            // --- SHADER FOR SPOKES (Vertical Spirals) ---
+            const spokeMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    uTime: { value: 0 },
+                    uTwist: { value: twist },
+                    uWaviness: { value: waviness },
+                    uShellRadius: { value: shellRadius },
+                    uSpeed: { value: speed }
+                },
+                vertexShader: `
+                    attribute float aOffset;
+                    attribute float aT;
+                    varying vec3 vColor;
+                    uniform float uTime;
+                    uniform float uTwist;
+                    uniform float uWaviness;
+                    uniform float uShellRadius;
+                    uniform float uSpeed;
+                    ${hsvToRgbShader}
+                    void main() {
+                        float tGlobal = uTime * uSpeed;
+                        float theta = aOffset + (aT * uTwist) + tGlobal;
+                        float phi = aT;
+
+                        float undulation = sin(phi * 5.0 + tGlobal * 2.5) * 0.75;
+                        float deformation = cos(theta * 2.0 + tGlobal) * 0.5;
+                        float r = uShellRadius + (undulation + deformation) * uWaviness;
+
+                        vec3 pos = vec3(r * sin(phi) * cos(theta), r * sin(phi) * sin(theta), r * cos(phi));
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+
+                        float hue = mod(theta * 0.05 + tGlobal * 0.1, 1.0);
+                        vColor = hsv2rgb(vec3(hue, 0.7, 0.5));
+                    }
+                `,
+                fragmentShader: `
+                    varying vec3 vColor;
+                    void main() {
+                        gl_FragColor = vec4(vColor, 0.1);
+                    }
+                `,
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                vertexColors: false // We are calculating color in the shader now
+            });
+
+            // --- SHADER FOR RINGS (Horizontal Circles) ---
+            const ringMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    uTime: { value: 0 },
+                    uWaviness: { value: waviness },
+                    uShellRadius: { value: shellRadius },
+                    uSpeed: { value: speed }
+                },
+                vertexShader: `
+                    attribute float aOffset;
+                    attribute float aT;
+                    varying vec3 vColor;
+                    uniform float uTime;
+                    uniform float uWaviness;
+                    uniform float uShellRadius;
+                    uniform float uSpeed;
+                    ${hsvToRgbShader}
+                    void main() {
+                        float tGlobal = uTime * uSpeed;
+                        float theta = aT + tGlobal;
+                        float phi = aOffset;
+
+                        float undulation = sin(theta * 4.0 + tGlobal * 2.0) * 1.0;
+                        float deformation = cos(phi * 2.0 + tGlobal) * 0.5;
+                        float r = uShellRadius + (undulation + deformation) * uWaviness;
+
+                        vec3 pos = vec3(r * sin(phi) * cos(theta), r * sin(phi) * sin(theta), r * cos(phi));
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+
+                        float hue = mod(phi * 0.1 + tGlobal * 0.1, 1.0);
+                        vColor = hsv2rgb(vec3(hue, 0.5, 0.4));
+                    }
+                `,
+                fragmentShader: `
+                    varying vec3 vColor;
+                    void main() {
+                        gl_FragColor = vec4(vColor, 0.1);
+                    }
+                `,
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                vertexColors: false
+            });
+
+            // 1. SETUP SPOKE GEOMETRY
+            const spokeVertexCount = numSpokes * numRings * 2;
+            const spokeGeo = new THREE.BufferGeometry();
+            const sOffsets = new Float32Array(spokeVertexCount);
+            const sTs = new Float32Array(spokeVertexCount);
+
             for (let s = 0; s < numSpokes; s++) {
                 const offset = (s / numSpokes) * Math.PI * 2;
                 for (let i = 0; i < numRings; i++) {
-                    vortexSystem.spokeSegments.push({ 
-                        offset: offset, 
-                        t0: (i / numRings) * Math.PI, 
-                        t1: ((i + 1) / numRings) * Math.PI,
-                        vibrateFreq: Math.random() * 20 + 10 // New: random vibration speed
-                    });
+                    const t0 = (i / numRings) * Math.PI;
+                    const t1 = ((i + 1) / numRings) * Math.PI;
+                    const idx = (s * numRings + i) * 2;
+
+                    sOffsets[idx] = offset; sOffsets[idx+1] = offset;
+                    sTs[idx] = t0;         sTs[idx+1] = t1;
                 }
             }
+            spokeGeo.setAttribute('aOffset', new THREE.BufferAttribute(sOffsets, 1));
+            spokeGeo.setAttribute('aT', new THREE.BufferAttribute(sTs, 1));
+            spokeGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(spokeVertexCount * 3), 3));
+            vortexSystem.meshSpokes = new THREE.LineSegments(spokeGeo, spokeMaterial);
+            scene.add(vortexSystem.meshSpokes);
 
-            // 2. Create Ring Segments (Horizontal Circles)
+            // 2. SETUP RING GEOMETRY
+            const ringVertexCount = numRings * numSpokes * 2;
+            const ringGeo = new THREE.BufferGeometry();
+            const rOffsets = new Float32Array(ringVertexCount);
+            const rTs = new Float32Array(ringVertexCount);
+
             for (let r = 0; r < numRings; r++) {
                 const offset = (r / numRings) * Math.PI;
                 for (let i = 0; i < numSpokes; i++) {
-                    vortexSystem.ringSegments.push({ 
-                        offset: offset, 
-                        t0: (i / numSpokes) * Math.PI * 2, 
-                        t1: ((i + 1) / numSpokes) * Math.PI * 2,
-                        vibrateFreq: Math.random() * 20 + 10 // New: random vibration speed
-                    });
+                    const t0 = (i / numSpokes) * Math.PI * 2;
+                    const t1 = ((i + 1) / numSpokes) * Math.PI * 2;
+                    const idx = (r * numSpokes + i) * 2;
+
+                    rOffsets[idx] = offset; rOffsets[idx+1] = offset;
+                    rTs[idx] = t0;          rTs[idx+1] = t1;
                 }
             }
-
-            // Helper to create the geometry
-            const createMesh = (segmentCount) => {
-                const geo = new THREE.BufferGeometry();
-                const pos = new Float32Array(segmentCount * 2 * 3);
-                const col = new Float32Array(segmentCount * 2 * 3);
-                geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-                geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-                const mat = new THREE.LineBasicMaterial({
-                    vertexColors: true,
-                    transparent: true,
-                    opacity: 0.1,
-                    blending: THREE.AdditiveBlending
-                });
-                return { geo, mat };
-            };
-
-            // Setup Spoke Mesh
-            const spokeData = createMesh(vortexSystem.spokeSegments.length);
-            vortexSystem.meshSpokes = new THREE.LineSegments(spokeData.geo, spokeData.mat);
-            scene.add(vortexSystem.meshSpokes);
-
-            // Setup Ring Mesh
-            const ringData = createMesh(vortexSystem.ringSegments.length);
-            vortexSystem.meshRings = new THREE.LineSegments(ringData.geo, ringData.mat);
+            ringGeo.setAttribute('aOffset', new THREE.BufferAttribute(rOffsets, 1));
+            ringGeo.setAttribute('aT', new THREE.BufferAttribute(rTs, 1));
+            ringGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(ringVertexCount * 3), 3));
+            vortexSystem.meshRings = new THREE.LineSegments(ringGeo, ringMaterial);
             scene.add(vortexSystem.meshRings);
         }
 		
@@ -402,60 +502,11 @@
         function updateVortex(time) {
             if (!vortexSystem.meshSpokes || !vortexSystem.meshRings) return;
 
-            const { spokeSegments, ringSegments, shellRadius, waviness, twist, speed } = vortexSystem;
-            const tGlobal = time * 0.001 * speed;
-
-            // Update Spoke Spirals
-            const sPos = vortexSystem.meshSpokes.geometry.attributes.position;
-            const sCol = vortexSystem.meshSpokes.geometry.attributes.color;
-            for (let i = 0; i < spokeSegments.length; i++) {
-                const seg = spokeSegments[i];
-                const vIdx = i * 2;
-                for (let j = 0; j < 2; j++) {
-                    const t = (j === 0) ? seg.t0 : seg.t1;
-
-                    // The "Twist": theta changes based on latitude (t)
-                    const theta = seg.offset + (t * twist) + tGlobal;
-                    const phi = t; 
-
-                    // --- THE UNDULATION LOGIC ---
-                    // This creates a smooth, traveling sine wave moving along the vertical axis (phi)
-                    const undulation = Math.sin(phi * 5.0 + tGlobal * 2.5) * 0.75;
-                    // This adds a secondary wobble for extra complexity
-                    const deformation = Math.cos(theta * 2.0 + tGlobal) * 0.5;
-                    const r = shellRadius + (undulation + deformation) * waviness;
-                    // ----------------------------
-                    sPos.setXYZ(vIdx + j, r * Math.sin(phi) * Math.cos(theta), r * Math.sin(phi) * Math.sin(theta), r * Math.cos(phi));
-                    const color = new THREE.Color().setHSL((theta * 0.05 + tGlobal * 0.1) % 1, 0.7, 0.5);
-                    sCol.setXYZ(vIdx + j, color.r, color.g, color.b);
-                }
-            }
-            sPos.needsUpdate = true; sCol.needsUpdate = true;
-
-            // Update Ring Circles
-            const rPos = vortexSystem.meshRings.geometry.attributes.position;
-            const rCol = vortexSystem.meshRings.geometry.attributes.color;
-            for (let i = 0; i < ringSegments.length; i++) {
-                const seg = ringSegments[i];
-                const vIdx = i * 2;
-                for (let j = 0; j < 2; j++) {
-                    const t = (j === 0) ? seg.t0 : seg.t1;
-                    const theta = t + tGlobal;
-                    const phi = seg.offset;
-
-                    // --- THE UNDULATION LOGIC ---
-                    // This creates a smooth, traveling sine wave moving around the horizontal axis (theta)
-                    const undulation = Math.sin(theta * 4.0 + tGlobal * 2.0) * 1.0;
-                    // This adds a secondary wobble for extra complexity
-                    const deformation = Math.cos(phi * 2.0 + tGlobal) * 0.5;
-                    const r = shellRadius + (undulation + deformation) * waviness;
-                    // ----------------------------
-                    rPos.setXYZ(vIdx + j, r * Math.sin(phi) * Math.cos(theta), r * Math.sin(phi) * Math.sin(theta), r * Math.cos(phi));
-                    const color = new THREE.Color().setHSL((phi * 0.1 + tGlobal * 0.1) % 1, 0.5, 0.4);
-                    rCol.setXYZ(vIdx + j, color.r, color.g, color.b);
-                }
-            }
-            rPos.needsUpdate = true; rCol.needsUpdate = true;
+            // We no longer loop through thousands of segments!
+            // We just update the single 'uTime' uniform, and the GPU 
+            // handles all the math for every vertex instantly.
+            vortexSystem.meshSpokes.material.uniforms.uTime.value = time * 0.001;
+            vortexSystem.meshRings.material.uniforms.uTime.value = time * 0.001;
         }
 
         scene.add(new THREE.AmbientLight(0x404040, 2));
@@ -713,7 +764,7 @@ for(let i = 0; i < 2; i++) {
                 sprite.position.z += vel.z;
 
                 // 3. Life Management
-                smokeSystem.lives[i] += 0.02;
+                smokeSystem.lives[i] += (0.02 * 60) * deltaTime;
                 if (smokeSystem.lives[i] > smokeSystem.maxLives[i]) {
                     respawnSmoke(i);
                     continue;
@@ -753,7 +804,7 @@ for(let i = 0; i < 2; i++) {
             for (let i = 0; i < maxParticles; i++) {
                 if (active[i] === 0) continue;
 
-                lives[i] += 0.015; 
+                lives[i] += (0.015 * 60) * deltaTime; 
                 if (lives[i] >= maxLives[i]) {
                     active[i] = 0;
                     continue;
@@ -953,82 +1004,92 @@ function spawnFood(index) {
         }
 		
         //wwa  This function handles creating, moving, and fading the embers
-        function updateEmbers(currentTime) {
-            if (snakeMeshes.length === 0 || !emberSystem.mesh) return;
+function updateEmbers(currentTime) {
+    if (snakeMeshes.length === 0 || !emberSystem.mesh) return;
 
-            const { maxParticles, positions, colors, baseColors, velocities, lives, maxLives, active, mesh } = emberSystem;
+    const { maxParticles, positions, colors, baseColors, velocities, lives, maxLives, active, mesh } = emberSystem;
 
-   for (let i = 1; i < snakeMeshes.length; i++) {
-    if (Math.random() < 0.4) { 
-        for (let s = 0; s < maxParticles; s++) {
-                        if (active[s] === 0) {
-                            active[s] = 1;
-                            const pos = snakeMeshes[i].position;
-                            const surfaceNormal = pos.clone().normalize();
-                            const sideDir = new THREE.Vector3().crossVectors(moveDir, surfaceNormal).normalize();
-                            const sideSpread = (Math.random() - 0.5) * 0.12;
+    for (let i = 1; i < snakeMeshes.length; i++) {
+        if (Math.random() < 0.4) { 
+            // Use rolling index to find the next available slot
+            let s = emberNextIndex;
+            let found = false;
 
-                            const vel = moveDir.clone().multiplyScalar(-0.05)
-                                .add(sideDir.multiplyScalar(sideSpread))
-                                .add(surfaceNormal.multiplyScalar((Math.random() - 0.5) * 0.02));
-
-                            velocities[s * 3] = vel.x;
-                            velocities[s * 3 + 1] = vel.y;
-                            velocities[s * 3 + 2] = vel.z;
-
-                            positions[s * 3] = pos.x;
-                            positions[s * 3 + 1] = pos.y;
-                            positions[s * 3 + 2] = pos.z;
-
-                            lives[s] = 0;
-                            maxLives[s] = 0.3 + Math.random() * 0.4;
-
-                            // Color: Determine if Orange or Cyan
-                            const isOrange = Math.random() > 0.5;
-                            const r = isOrange ? 1.0 : 0.0;
-                            const g = isOrange ? 0.6 : 0.8;
-                            const b = isOrange ? 0.0 : 1.0;
-
-                            baseColors[s * 3] = r;
-                            baseColors[s * 3 + 1] = g;
-                            baseColors[s * 3 + 2] = b;
-                            colors[s * 3] = r;
-                            colors[s * 3 + 1] = g;
-                            colors[s * 3 + 2] = b;
-
-                            break; // Move to the next snake segment
-                        }
-                    }
+            for (let attempt = 0; attempt < maxParticles; attempt++) {
+                if (active[s] === 0) {
+                    found = true;
+                    break;
                 }
+                s = (s + 1) % maxParticles;
             }
 
-            // 2. Updating (Move existing particles and fade them)
-            for (let s = 0; s < maxParticles; s++) {
-                if (active[s] === 0) continue;
+            if (found) {
+                active[s] = 1;
+                const pos = snakeMeshes[i].position;
 
-                lives[s] += 0.03;
+                // Use scratchpad instead of .clone()
+                _surfaceNormal.copy(pos).normalize();
+                _sideDir.crossVectors(moveDir, _surfaceNormal).normalize();
 
-                if (lives[s] >= maxLives[s]) {
-                    active[s] = 0;
-                    continue;
-                }
+                const sideSpread = (Math.random() - 0.5) * 0.12;
 
-                // Move position
-                positions[s * 3] += velocities[s * 3];
-                positions[s * 3 + 1] += velocities[s * 3 + 1];
-                positions[s * 3 + 2] += velocities[s * 3 + 2];
+                // Calculate velocity without creating new Vector3 objects
+                velocities[s * 3] = (moveDir.x * -0.05) + (_sideDir.x * sideSpread) + (_surfaceNormal.x * ((Math.random() - 0.5) * 0.02));
+                velocities[s * 3 + 1] = (moveDir.y * -0.05) + (_sideDir.y * sideSpread) + (_surfaceNormal.y * ((Math.random() - 0.5) * 0.02));
+                velocities[s * 3 + 2] = (moveDir.z * -0.05) + (_sideDir.z * sideSpread) + (_surfaceNormal.z * ((Math.random() - 0.5) * 0.02));
 
-                // Dimming: Instead of changing alpha, we dim the RGB color
-                const alpha = Math.sin(lives[s] * Math.PI / maxLives[s]);
-                colors[s * 3] = baseColors[s * 3] * alpha;
-                colors[s * 3 + 1] = baseColors[s * 3 + 1] * alpha;
-                colors[s * 3 + 2] = baseColors[s * 3 + 2] * alpha;
+                positions[s * 3] = pos.x;
+                positions[s * 3 + 1] = pos.y;
+                positions[s * 3 + 2] = pos.z;
+
+                lives[s] = 0;
+                maxLives[s] = 0.3 + Math.random() * 0.4;
+
+                const isOrange = Math.random() > 0.5;
+                const r = isOrange ? 1.0 : 0.0;
+                const g = isOrange ? 0.6 : 0.8;
+                const b = isOrange ? 0.0 : 1.0;
+
+                baseColors[s * 3] = r;
+                baseColors[s * 3 + 1] = g;
+                baseColors[s * 3 + 2] = b;
+                colors[s * 3] = r;
+                colors[s * 3 + 1] = g;
+                colors[s * 3 + 2] = b;
+
+                // Update the rolling index for next time
+                emberNextIndex = (s + 1) % maxParticles;
             }
-
-            // Tell Three.js that the data has changed so it updates the screen
-            mesh.geometry.attributes.position.needsUpdate = true;
-            mesh.geometry.attributes.color.needsUpdate = true;
         }
+    }
+
+    // 2. Updating (Move existing particles and fade them)
+    // We multiply the increment by (60 * deltaTime) to keep it consistent at any FPS
+    const lifeIncrement = 0.03 * 60 * deltaTime;
+
+    for (let s = 0; s < maxParticles; s++) {
+        if (active[s] === 0) continue;
+
+        lives[s] += lifeIncrement;
+
+        if (lives[s] >= maxLives[s]) {
+            active[s] = 0;
+            continue;
+        }
+
+        positions[s * 3] += velocities[s * 3];
+        positions[s * 3 + 1] += velocities[s * 3 + 1];
+        positions[s * 3 + 2] += velocities[s * 3 + 2];
+
+        const alpha = Math.sin(lives[s] * Math.PI / maxLives[s]);
+        colors[s * 3] = baseColors[s * 3] * alpha;
+        colors[s * 3 + 1] = baseColors[s * 3 + 1] * alpha;
+        colors[s * 3 + 2] = baseColors[s * 3 + 2] * alpha;
+    }
+
+    mesh.geometry.attributes.position.needsUpdate = true;
+    mesh.geometry.attributes.color.needsUpdate = true;
+}
 		
         function syncSnakeLength() {
             // Ensure the visual array matches the logical array size
@@ -1148,11 +1209,21 @@ window.addEventListener('keyup', (e) => {
 let boostTouchId = null;
 
 window.addEventListener('touchstart', (e) => {
+  // 1. If they tapped a button, let the button handle it normally
   if (e.target.tagName === 'BUTTON') return;
-  if (e.cancelable) e.preventDefault();
+
+  // 2. If the game hasn't started or is over, STOP here. 
+  // This allows the browser to scroll the start screen normally.
   if (!gameStarted || isGameOver) return;
+
+  // 3. If we reached this point, the game IS running. 
+  // Now we prevent the default behavior (scrolling) so the game stays steady.
+  if (e.cancelable) e.preventDefault();
+
+  // 4. Handle pausing/unpausing
   if (isPaused) { isPaused = false; pauseUI.style.display = 'none'; return; }
 
+  // 5. Handle game controls (Turning and Boosting)
   for (const t of e.changedTouches) {
     const x = t.clientX / window.innerWidth;
     if (x < 0.33) inputQueue.push('LEFT');
@@ -1258,117 +1329,136 @@ if (collision) { endGame(); return; }
             document.getElementById('final-score').innerText = `Knowledge Gained: ${score}`;
         }
 
-        function animate(currentTime) {
-			atmosphere.material.uniforms.uTime.value = currentTime * 0.001;
-            requestAnimationFrame(animate);
-            if (!isGameOver) {
-                if (!isPaused) {
-                    updateEmbers(currentTime);
-                    updateFoodExplosions();
-					updateSmoke(currentTime);
-					updateVortex(currentTime);
-                    if (currentTime - lastStepTime >= currentMoveInterval) { performMovementStep(); lastStepTime = currentTime; }
-                    visualSnakePositions[0].lerp(snakePositions[0], 0.5);
+function animate(currentTime) {
+    // 1. Calculate Delta Time (The time passed since last frame)
+    if (!prevFrameTime) prevFrameTime = currentTime;
+    deltaTime = (currentTime - prevFrameTime) / 1000;
+    if (deltaTime > 0.1) deltaTime = 0.016; // Cap it so a huge lag spike doesn't break the game
+    prevFrameTime = currentTime;
 
-                    for (let i = 1; i < visualSnakePositions.length; i++) {
-                        if (snakePositions[i]) {
-                            visualSnakePositions[i].lerp(snakePositions[i], 0.5);
-                            visualSnakePositions[i].lerp(visualSnakePositions[i - 1], 0.2);
-                        } else {
-                            visualSnakePositions[i].lerp(visualSnakePositions[i-1], 0.5);
-                        }
+    atmosphere.material.uniforms.uTime.value = currentTime * 0.001;
+    requestAnimationFrame(animate);
 
-                        const dist = visualSnakePositions[i].distanceTo(visualSnakePositions[i-1]);
-                        if (dist < 0.25) { 
-                            const direction = new THREE.Vector3().subVectors(visualSnakePositions[i], visualSnakePositions[i-1]).normalize();
-                            if (direction.length() === 0) direction.copy(moveDir);
-                            visualSnakePositions[i].copy(visualSnakePositions[i-1]).add(direction.multiplyScalar(0.25));
-                        }
-                    }
+    if (!isGameOver) {
+        if (!isPaused) {
+            updateEmbers(currentTime);
+            updateFoodExplosions();
+            updateSmoke(currentTime);
+            updateVortex(currentTime);
 
-                    syncSnakeLength();
-
-                    if (snakeMeshes.length > 0) {
-                        for (let i = 0; i < snakeMeshes.length; i++) {
-                            const mesh = snakeMeshes[i];
-                            const pos = visualSnakePositions[i];
-                            mesh.position.copy(pos);
-
-                            if (i === 0) {
-                                if (i < snakeMeshes.length - 1) {
-                                    mesh.lookAt(visualSnakePositions[i+1]);
-                                } else {
-                                    _v1.copy(pos).add(moveDir); 
-                                    mesh.lookAt(_v1);
-                                }
-                                mesh.up.copy(pos).normalize();
-                            }
-
-                            // Pulse the entire group at once using scale.setScalar (Step 13).
-                            if (i > 0) {
-                                const time = currentTime * 0.005;
-                                const pulse = 1.0 + Math.sin(time + i) * 0.05;
-                                mesh.scale.setScalar(pulse);
-                            }
-                        }
-                        visualHeadPos.lerp(snakeMeshes[0].position, 0.05);
-
-                        _v1.copy(visualHeadPos).normalize().multiplyScalar(20);
-                        // Camera 'drifts' into position
-                        camera.position.lerp(_v1, 0.02);
-
-                        _headNormal.copy(visualHeadPos).normalize();
-                        _desiredUp.copy(moveDir).projectOnPlane(_headNormal).normalize();
-
-                        cameraTargetUp.copy(_desiredUp);
-
-                        // Camera rotation is gradual and cinematic
-                        currentCameraUp.lerp(cameraTargetUp, 0.02);
-                        camera.up.copy(currentCameraUp);
-                        camera.lookAt(visualHeadPos);
-
-                        _v2.copy(visualHeadPos).multiplyScalar(2);
-                        mainLight.position.copy(_v2);
-                    }
-                } 
+            if (currentTime - lastStepTime >= currentMoveInterval) { 
+                performMovementStep(); 
+                lastStepTime = currentTime; 
             }
-            foods.forEach((f) => {
-                const time = performance.now() * 0.005;
-                _v1.copy(f.position).normalize();
-                f.mesh.quaternion.setFromUnitVectors(_v3.set(0, 1, 0), _v1);
 
-                const bobAmount = Math.sin(time * 2.0) * 0.2; 
-                f.mesh.position.copy(f.position).addScaledVector(_v1, bobAmount);
+            // 1. Calculate frame-rate independent smoothing constants
+            const bodyLerp = 1 - Math.exp(-41.5 * deltaTime);
+            const bodyFollowLerp = 1 - Math.exp(-13.3 * deltaTime);
 
-                f.particles.forEach((p, i) => {
-                    const lifeProgress = (time * p.userData.speed + p.userData.life) % 1;
+            // 2. Smooth the head
+            visualSnakePositions[0].lerp(snakePositions[0], bodyLerp);
 
-                    let hMult = 1.0;
-                    let wMult = 1.0;
-                    if (i % 3 === 0) { 
-                        hMult = 1.5; wMult = 0.4; 
-                    } else if (i % 3 === 1) { 
-                        hMult = 1.0; wMult = 0.9; 
-                    } else { 
-                        hMult = 0.6; wMult = 1.5; 
+            // 3. Smooth the body and maintain spacing
+            for (let i = 1; i < visualSnakePositions.length; i++) {
+                if (snakePositions[i]) {
+                    // Smooth the segment toward its logical position AND toward the segment in front of it
+                    visualSnakePositions[i].lerp(snakePositions[i], bodyLerp);
+                    visualSnakePositions[i].lerp(visualSnakePositions[i - 1], bodyFollowLerp);
+                } else {
+                    visualSnakePositions[i].lerp(visualSnakePositions[i-1], bodyLerp);
+                }
+
+                // This is the "Spacing Logic" that prevents the body from clumping
+                const dist = visualSnakePositions[i].distanceTo(visualSnakePositions[i-1]);
+                if (dist < 0.25) { 
+                    const direction = new THREE.Vector3().subVectors(visualSnakePositions[i], visualSnakePositions[i-1]).normalize();
+                    if (direction.length() === 0) direction.copy(moveDir);
+                    visualSnakePositions[i].copy(visualSnakePositions[i-1]).add(direction.multiplyScalar(0.25));
+                }
+            }
+
+            syncSnakeLength();
+
+            if (snakeMeshes.length > 0) {
+                for (let i = 0; i < snakeMeshes.length; i++) {
+                    const mesh = snakeMeshes[i];
+                    const pos = visualSnakePositions[i];
+                    mesh.position.copy(pos);
+
+                    if (i === 0) {
+                        if (i < snakeMeshes.length - 1) {
+                            mesh.lookAt(visualSnakePositions[i+1]);
+                        } else {
+                            _v1.copy(pos).add(moveDir); 
+                            mesh.lookAt(_v1);
+                        }
+                        mesh.up.copy(pos).normalize();
                     }
 
-                    const height = lifeProgress * 0.8 * hMult;
-                    const width = (1.0 - lifeProgress) * 0.4 * wMult; 
+                    if (i > 0) {
+                        const time = currentTime * 0.005;
+                        const pulse = 1.0 + Math.sin(time + i) * 0.05;
+                        mesh.scale.setScalar(pulse);
+                    }
+                }
+                const headLerpAlpha = 1 - Math.exp(-1.5 * deltaTime);
+				visualHeadPos.lerp(snakeMeshes[0].position, headLerpAlpha);
 
-                    p.position.set(
-                        p.userData.drift * Math.sin(time + i) * width, 
-                        height, 
-                        p.userData.drift * Math.cos(time + i) * width
-                    );
+                _v1.copy(visualHeadPos).normalize().multiplyScalar(20);
 
-                    const scale = (1.0 - lifeProgress) * 0.8; 
-                    p.scale.set(scale, scale, scale);
-                    p.material.opacity = (1.0 - lifeProgress) * 1.2; 
-                });
-            });
-                        composer.render();
-        }
+                // Frame-rate independent camera lerping
+                // We use an exponential decay formula so '0.02' feels the same at any FPS
+                const cameraLerpAlpha = 1 - Math.exp(-3 * deltaTime); 
+                camera.position.lerp(_v1, cameraLerpAlpha);
+
+                _headNormal.copy(visualHeadPos).normalize();
+                _desiredUp.copy(moveDir).projectOnPlane(_headNormal).normalize();
+                cameraTargetUp.copy(_desiredUp);
+
+                const upLerpAlpha = 1 - Math.exp(-3 * deltaTime);
+                currentCameraUp.lerp(cameraTargetUp, upLerpAlpha);
+                camera.up.copy(currentCameraUp);
+                camera.lookAt(visualHeadPos);
+
+                _v2.copy(visualHeadPos).multiplyScalar(2);
+                mainLight.position.copy(_v2);
+            }
+        } 
+    }
+
+    // Food animation logic
+    foods.forEach((f) => {
+        const time = performance.now() * 0.005;
+        _v1.copy(f.position).normalize();
+        f.mesh.quaternion.setFromUnitVectors(_v3.set(0, 1, 0), _v1);
+
+        const bobAmount = Math.sin(time * 2.0) * 0.2; 
+        f.mesh.position.copy(f.position).addScaledVector(_v1, bobAmount);
+
+        f.particles.forEach((p, i) => {
+            const lifeProgress = (time * p.userData.speed + p.userData.life) % 1;
+            let hMult = 1.0; let wMult = 1.0;
+            if (i % 3 === 0) { hMult = 1.5; wMult = 0.4; } 
+            else if (i % 3 === 1) { hMult = 1.0; wMult = 0.9; } 
+            else { hMult = 0.6; wMult = 1.5; }
+
+            const height = lifeProgress * 0.8 * hMult;
+            const width = (1.0 - lifeProgress) * 0.4 * wMult; 
+
+            p.position.set(
+                p.userData.drift * Math.sin(time + i) * width, 
+                height, 
+                p.userData.drift * Math.cos(time + i) * width
+            );
+
+            const scale = (1.0 - lifeProgress) * 0.8; 
+            p.scale.set(scale, scale, scale);
+            p.material.opacity = (1.0 - lifeProgress) * 1.2; 
+        });
+    });
+
+    composer.render();
+}
 
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
