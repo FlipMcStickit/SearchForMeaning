@@ -185,12 +185,12 @@
             meshRings: null,
             spokeSegments: [],
             ringSegments: [],
-            numRings: 60,        
+            numRings: 50,        
             numSpokes: 30,        
-            shellRadius: 30,      
-            twist: 2.0,           // How much the spokes spiral
-            waviness: 5.0,        
-            speed: 0.3
+            shellRadius: 75,      
+            twist: 4.0,           // How much the spokes spiral
+            waviness: 10.0,        
+            speed: 0.2
             
         };
         let emberSystem = {
@@ -215,6 +215,16 @@
             maxLives: null,
             active: null
         };
+
+        let smokeSystem = {
+            mesh: new THREE.Group(), // Now a container for sprites
+            sprites: [],             // Array to hold individual smoke clouds
+            maxParticles: 60, 
+            velocities: [],          // Array for velocities
+            lives: [],               // Array for life timers
+            maxLives: [],            // Array for max life timers
+            active: []               // Array for active status
+        };
         let visualHeadPos = new THREE.Vector3(RADIUS, 0, 0);
         let visualSnakePositions = []; 
         let cameraTargetUp = new THREE.Vector3(0, 1, 0);
@@ -225,7 +235,8 @@
         const _v3 = new THREE.Vector3();
         const _headNormal = new THREE.Vector3();
         const _desiredUp = new THREE.Vector3();
-
+        const _smokeVec = new THREE.Vector3();
+		
         function randomPointOnSphere(radius) {
             const theta = Math.random() * Math.PI * 2;
             const phi = Math.acos(2 * Math.random() - 1);
@@ -323,10 +334,11 @@
         const planetMaterial = new THREE.MeshPhongMaterial({ 
             map: cloudTexture,
             transparent: true, 
-            opacity: 0.8,        
-            side: THREE.DoubleSide 
+            opacity: 0.5,        
+            side: THREE.BackSide // This makes the sphere act like a hollow room
         });
         const planet = new THREE.Mesh(new THREE.SphereGeometry(RADIUS, 64, 64), planetMaterial);
+        planet.depthWrite = true; // This tells the computer the sphere is a solid boundary
         scene.add(planet);
 
         function setupVortex() {
@@ -368,7 +380,7 @@
                 const mat = new THREE.LineBasicMaterial({
                     vertexColors: true,
                     transparent: true,
-                    opacity: 0.3,
+                    opacity: 0.1,
                     blending: THREE.AdditiveBlending
                 });
                 return { geo, mat };
@@ -408,7 +420,7 @@
 
                     // --- THE UNDULATION LOGIC ---
                     // This creates a smooth, traveling sine wave moving along the vertical axis (phi)
-                    const undulation = Math.sin(phi * 5.0 + tGlobal * 2.5) * 0.5;
+                    const undulation = Math.sin(phi * 5.0 + tGlobal * 2.5) * 0.75;
                     // This adds a secondary wobble for extra complexity
                     const deformation = Math.cos(theta * 2.0 + tGlobal) * 0.5;
                     const r = shellRadius + (undulation + deformation) * waviness;
@@ -447,7 +459,7 @@
         }
 
         scene.add(new THREE.AmbientLight(0x404040, 2));
-        const mainLight = new THREE.PointLight(0x00ffaa, 100, 50);
+        const mainLight = new THREE.PointLight(0xe0f7fa, 50, 50);
         scene.add(mainLight);
 
         const foodGroup = new THREE.Group();
@@ -560,6 +572,73 @@
             scene.add(foodExplosionSystem.mesh);
         }
         setupFoodExplosionSystem();
+		setupSmokeSystem();
+
+        function setupSmokeSystem() {
+            // Create the texture for the smoke
+            const canvas = document.createElement('canvas');
+            canvas.width = 128; canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+            const grad = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+            grad.addColorStop(0, 'rgba(200, 200, 200, 0.3)'); 
+            grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, 128, 128);
+            const tex = new THREE.CanvasTexture(canvas);
+
+            const spriteMat = new THREE.SpriteMaterial({ 
+                map: tex, 
+                transparent: true, 
+                blending: THREE.NormalBlending,
+                depthWrite: false,
+				color: 0x99ffaa
+            });
+
+            // Create the container and add it to the scene
+            scene.add(smokeSystem.mesh);
+
+            // Prepare arrays
+            for (let i = 0; i < smokeSystem.maxParticles; i++) {
+                // Create the sprite object
+                const sprite = new THREE.Sprite(spriteMat);
+                smokeSystem.mesh.add(sprite);
+                smokeSystem.sprites.push(sprite);
+
+                // Setup tracking data
+                smokeSystem.velocities.push(new THREE.Vector3());
+                smokeSystem.lives.push(0);
+                smokeSystem.maxLives.push(0);
+                smokeSystem.active.push(0);
+
+                // Spawn it
+                respawnSmoke(i);
+            }
+        }
+
+        function respawnSmoke(i) {
+            // We spawn them further away from the edge (RADIUS - 3 instead of - 1)
+            const pos = randomPointOnSphere(RADIUS - 3.0);
+            const sprite = smokeSystem.sprites[i];
+
+            // Position the sprite
+            sprite.position.copy(pos);
+
+            // Randomize size: some big wisps, some small specks
+            const size = 3.0 + Math.random() * 8.0;
+            sprite.scale.set(size, size, 1);
+
+            // Random velocity
+            smokeSystem.velocities[i].set(
+                (Math.random() - 0.5) * 0.02,
+                (Math.random() - 0.5) * 0.02,
+                (Math.random() - 0.5) * 0.02
+            );
+
+            // Life timers
+            smokeSystem.lives[i] = 0;
+            smokeSystem.maxLives[i] = 15 + Math.random() * 25;
+            smokeSystem.active[i] = 1;
+        }
 
         function explodeFood(explosionPos, targetPos) {
             const { maxParticles, positions, colors, baseColors, velocities, lives, maxLives, active } = foodExplosionSystem;
@@ -601,6 +680,61 @@
                     lives[i] = 0;
                     maxLives[i] = 0.6 + Math.random() * 0.6;
                     count++;
+                }
+            }
+        }
+		
+        function updateSmoke(time = 0) {
+            if (smokeSystem.sprites.length === 0) return;
+
+            const boundaryLimit = RADIUS - 2.0;
+            const boundaryLimitSq = boundaryLimit * boundaryLimit;
+
+            for (let i = 0; i < smokeSystem.maxParticles; i++) {
+                if (smokeSystem.active[i] === 0) continue;
+
+                const sprite = smokeSystem.sprites[i];
+                const vel = smokeSystem.velocities[i];
+
+                // 1. Undulation (The Wavy Motion)
+                // We use the sine of time and the sprite's Y position to create a wave
+                const wobble = Math.sin(time * 0.001 + sprite.position.y) * 0.005;
+
+                // 2. Move the sprite
+                sprite.position.x += vel.x + wobble;
+                sprite.position.y += vel.y;
+                sprite.position.z += vel.z;
+
+                // 3. Life Management
+                smokeSystem.lives[i] += 0.02;
+                if (smokeSystem.lives[i] > smokeSystem.maxLives[i]) {
+                    respawnSmoke(i);
+                    continue;
+                }
+
+                // 4. Containment (The Bounce)
+                // We check the distance from center to see if it hit the wall
+                const distSq = sprite.position.lengthSq();
+
+                if (distSq > boundaryLimitSq) {
+                    // Find the direction from center to sprite (the normal)
+                    const normal = sprite.position.clone().normalize();
+
+                    // Calculate how much of the velocity is pointing "out"
+                    const dot = vel.x * normal.x + vel.y * normal.y + vel.z * normal.z;
+
+                    if (dot > 0) {
+                        // Reflect the velocity vector
+                        vel.x -= 2 * dot * normal.x;
+                        vel.y -= 2 * dot * normal.y;
+                        vel.z -= 2 * dot * normal.z;
+
+                        // Friction (slow down the bounce)
+                        vel.multiplyScalar(0.5);
+
+                        // Nudge back inside the sphere
+                        sprite.position.copy(normal.clone().multiplyScalar(boundaryLimit));
+                    }
                 }
             }
         }
@@ -776,13 +910,18 @@ glowTexture.colorSpace = THREE.SRGBColorSpace;            const scale = 0.4;
             positionAttribute.needsUpdate = true;
             geometry.computeVertexNormals();
 
-            const iceShades = [0xffffff, 0xe0f7fa, 0x81d4fa, 0x03a9f4, 0x01579b];
+            // A more saturated, "colder" palette to resist the green light
+            const iceShades = [0xf0faff, 0xadd8e6, 0x00b4d8, 0x0077b6, 0x03045e];
+
             const randomColor = iceShades[Math.floor(Math.random() * iceShades.length)];
 
-            // We switched to MeshLambertMaterial. 
-            // This removes the "specular" highlight (the glare) entirely.
-            const material = new THREE.MeshLambertMaterial({ 
-                color: randomColor, 
+            // We use MeshPhongMaterial so we can add an "emissive" glow.
+            // This makes the object look like it's glowing from the inside,
+            // which helps it ignore the green light from the environment.
+            const material = new THREE.MeshPhongMaterial({ 
+                color: randomColor,          // The base color
+                emissive: randomColor,       // The color of the internal glow
+                emissiveIntensity: 0.6,      // How strong the glow is (0 to 1)
                 flatShading: true 
             });
 
@@ -1075,6 +1214,7 @@ if (collision) { endGame(); return; }
                 if (!isPaused) {
                     updateEmbers(currentTime);
                     updateFoodExplosions();
+					updateSmoke(currentTime);
 					updateVortex(currentTime);
                     if (currentTime - lastStepTime >= currentMoveInterval) { performMovementStep(); lastStepTime = currentTime; }
                     visualSnakePositions[0].lerp(snakePositions[0], 0.5);
@@ -1103,8 +1243,6 @@ if (collision) { endGame(); return; }
                             const pos = visualSnakePositions[i];
                             mesh.position.copy(pos);
 
-                            // The head (i=0) still needs lookAt for lighting/camera orientation.
-                            // Segments (i > 0) are spheres, so lookAt is unnecessary (Step 13).
                             if (i === 0) {
                                 if (i < snakeMeshes.length - 1) {
                                     mesh.lookAt(visualSnakePositions[i+1]);
@@ -1122,11 +1260,10 @@ if (collision) { endGame(); return; }
                                 mesh.scale.setScalar(pulse);
                             }
                         }
-                        // We lowered 0.1 to 0.05 so the 'ghost' head trails the snake more smoothly
                         visualHeadPos.lerp(snakeMeshes[0].position, 0.05);
 
-                        _v1.copy(visualHeadPos).normalize().multiplyScalar(18);
-                        // We lowered 0.05 to 0.02 so the camera 'drifts' into position
+                        _v1.copy(visualHeadPos).normalize().multiplyScalar(20);
+                        // Camera 'drifts' into position
                         camera.position.lerp(_v1, 0.02);
 
                         _headNormal.copy(visualHeadPos).normalize();
@@ -1134,7 +1271,7 @@ if (collision) { endGame(); return; }
 
                         cameraTargetUp.copy(_desiredUp);
 
-                        // We lowered 0.05 to 0.02 so the camera rotation is gradual and cinematic
+                        // Camera rotation is gradual and cinematic
                         currentCameraUp.lerp(cameraTargetUp, 0.02);
                         camera.up.copy(currentCameraUp);
                         camera.lookAt(visualHeadPos);
@@ -1148,6 +1285,13 @@ if (collision) { endGame(); return; }
                 const time = performance.now() * 0.005;
                 _v1.copy(food.position).normalize();
                 food.mesh.quaternion.setFromUnitVectors(_v3.set(0, 1, 0), _v1);
+
+                // --- NEW BOBBING EFFECT ---
+                // This calculates a smooth up-and-down motion using a sine wave
+                // Math.sin creates the wave, 2.0 is the speed, and 0.2 is the height of the bob
+                const bobAmount = Math.sin(time * 2.0) * 0.2; 
+                food.mesh.position.copy(food.position).addScaledVector(_v1, bobAmount);
+                // --------------------------
 
                 food.particles.forEach((p, i) => {
                     const lifeProgress = (time * p.userData.speed + p.userData.life) % 1;
